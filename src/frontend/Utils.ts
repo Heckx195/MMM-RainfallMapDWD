@@ -29,7 +29,7 @@ export function getIconColor(marker: Marker): string {
     : 'red'
 }
 
-export function changeSubstituteModuleVisibility(show: boolean, config: Config): void {
+export function changeSubstituteModuleVisibility(show: boolean, config: Config, lockString: string): void {
   const substituteModules = config.substituteModules || config.substitudeModules || []
   if (substituteModules.length > 0) {
     try {
@@ -40,9 +40,9 @@ export function changeSubstituteModuleVisibility(show: boolean, config: Config):
           continue
         }
         if (show) {
-          substituteModule.show(300, undefined, { lockString: 'MMM-RAIN-MAP' })
+          substituteModule.show(300, undefined, { lockString })
         } else {
-          substituteModule.hide(300, undefined, { lockString: 'MMM-RAIN-MAP' })
+          substituteModule.hide(300, undefined, { lockString })
         }
       }
     } catch (err) {

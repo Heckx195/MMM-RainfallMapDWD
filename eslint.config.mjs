@@ -5,7 +5,7 @@ import tseslint from 'typescript-eslint'
 
 export default defineConfig(
   // Build artifacts and generated files
-  globalIgnores(['MMM-RAIN-MAP.js', 'node_helper.js', 'config.demo.js', 'changelog.config.js', 'leaflet.css']),
+  globalIgnores(['MMM-RainfallMapDWD.js', 'node_helper.js', 'config.demo.js', 'changelog.config.js', 'leaflet.css']),
 
   // TypeScript source files
   {

@@ -356,7 +356,7 @@ Module.register<Config>('MMM-RainfallMapDWD', {
   ) {
     if (this.config.displayHoursBeforeRain >= 0) {
       if (notificationIdentifier === 'DOM_OBJECTS_CREATED') {
-        changeSubstituteModuleVisibility(false, this.config)
+        changeSubstituteModuleVisibility(false, this.config, this.identifier)
       }
       if (this.config.displayHoursBeforeRain === 0) {
         if (notificationIdentifier === 'OPENWEATHER_FORECAST_WEATHER_UPDATE') {
@@ -402,7 +402,7 @@ Module.register<Config>('MMM-RainfallMapDWD', {
       // Rain detected - show module if it was hidden due to no rain
       if (this.runtimeData.isHiddenDueToNoRain) {
         this.runtimeData.isHiddenDueToNoRain = false
-        changeSubstituteModuleVisibility(false, this.config)
+        changeSubstituteModuleVisibility(false, this.config, this.identifier)
         this.show(300, undefined, { lockString: this.identifier })
         // Restart animation if not running
         if (!this.runtimeData.animationTimer) {
@@ -419,7 +419,7 @@ Module.register<Config>('MMM-RainfallMapDWD', {
           clearTimeout(this.runtimeData.animationTimer)
           this.runtimeData.animationTimer = null
         }
-        changeSubstituteModuleVisibility(true, this.config)
+        changeSubstituteModuleVisibility(true, this.config, this.identifier)
       }
     }
   }
