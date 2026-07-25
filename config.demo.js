@@ -1,5 +1,5 @@
 /**
- * Demo configuration for MMM-RAIN-MAP module development
+ * Demo configuration for MMM-RainfallMapDWD module development
  * This config is used for testing the module in isolation
  *
  * Usage: node --run demo
@@ -27,11 +27,10 @@ const config = {
 
     // Top Left: Berlin
     {
-      module: 'MMM-RAIN-MAP',
+      module: 'MMM-RainfallMapDWD',
       position: 'top_left',
       config: {
         animationSpeedMs: 800,
-        colorScheme: 2,
         colorizeTime: true,
         defaultZoomLevel: 8,
         displayTime: true,
@@ -56,8 +55,12 @@ const config = {
         mapHeight: '420px', // must be a pixel value (no percent)
         mapWidth: '420px', // must be a pixel value (no percent)
         maxHistoryFrames: 6,
+        maxForecastFrames: -1,
         substituteModules: [],
-        updateIntervalInSeconds: 600
+        pollingIntervalMinutes: 5,
+        radarRasterWidth: 800,
+        radarRasterHeight: 873,
+        radarColorScheme: 'blue'
       }
     }
   ]

@@ -1,12 +1,12 @@
 {
-  "name": "mmm-rain-map",
-  "version": "3.0.5",
-  "description": "A Rain Radar Map based on the Rainviewer API for the MagicMirror² platform.",
+  "name": "mmm-rainfallmapdwd",
+  "version": "0.1.0",
+  "description": "A Rain Radar Map for the MagicMirror² platform, based on official DWD (Deutscher Wetterdienst) RADOLAN RV radar nowcast data (past + ~2h forecast). Forked from MMM-RAIN-MAP.",
   "type": "commonjs",
-  "main": "MMM-RAIN-MAP.js",
+  "main": "MMM-RainfallMapDWD.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/jalibu/MMM-RAIN-MAP.git"
+    "url": "git+https://github.com/Heckx195/mmm-rainfallmapdwd.git"
   },
   "keywords": [
     "magicmirror",
@@ -15,17 +15,19 @@
     "leaflet",
     "map",
     "radar",
-    "clouds"
+    "clouds",
+    "dwd",
+    "radolan"
   ],
-  "author": "Jan.Litzenburger@gmail.com",
+  "author": "heckx195@gmail.com",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/jalibu/MMM-RAIN-MAP/issues"
+    "url": "https://github.com/Heckx195/mmm-rainfallmapdwd/issues"
   },
-  "homepage": "https://github.com/jalibu/MMM-RAIN-MAP#readme",
+  "homepage": "https://github.com/Heckx195/mmm-rainfallmapdwd#readme",
   "scripts": {
     "build": "rollup -c && cp node_modules/leaflet/dist/leaflet.css leaflet.css",
-    "demo": "cd ../../ && MM_CONFIG_FILE=modules/MMM-RAIN-MAP/config.demo.js node --run start:dev",
+    "demo": "cd ../../ && MM_CONFIG_FILE=modules/MMM-RainfallMapDWD/config.demo.js node --run start:dev",
     "dev": "rollup -c --sourcemap=inline",
     "dev:watch": "node --run dev -- --watch",
     "prepare": "simple-git-hooks || exit 0",
@@ -44,6 +46,12 @@
       "eslint --fix",
       "prettier --write --ignore-unknown"
     ]
+  },
+  "dependencies": {
+    "h5wasm": "^0.8.0",
+    "pngjs": "^7.0.0",
+    "proj4": "^2.19.10",
+    "tar-stream": "^3.1.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

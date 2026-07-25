@@ -1,5 +1,5 @@
 import * as Log from 'logger'
-import { Config, Marker } from '../types/Config'
+import { Marker, Config } from '../types/Config'
 import { MMGlobal } from '../types/MagicMirror'
 
 // Global or injected variable declarations
@@ -27,37 +27,6 @@ export function getIconColor(marker: Marker): string {
   return marker.color && supportedIconColors.includes(marker.color as (typeof supportedIconColors)[number])
     ? marker.color
     : 'red'
-}
-
-export interface RainFrame {
-  time: number
-  path: string
-}
-
-export function sanitizeAndFilterFrames(
-  results: { radar: { past: RainFrame[]; nowcast: RainFrame[] } },
-  config: Config
-): { historyFrames: RainFrame[]; forecastFrames: RainFrame[] } {
-  let historyFrames = results.radar?.past || []
-  let forecastFrames = results.radar?.nowcast || []
-
-  if (config.maxHistoryFrames >= 0) {
-    historyFrames = config.maxHistoryFrames === 0 ? [] : historyFrames.slice(-config.maxHistoryFrames)
-  }
-
-  if (config.maxForecastFrames >= 0) {
-    forecastFrames = config.maxForecastFrames === 0 ? [] : forecastFrames.slice(0, config.maxForecastFrames)
-  }
-
-  // Warn if forecast was requested but none available
-  if (config.maxForecastFrames > 0 && forecastFrames.length === 0) {
-    Log.warn(
-      'Forecast frames requested but RainViewer API returned no forecast data. ' +
-        'The free API no longer provides forecast/nowcast. Consider setting maxForecastFrames to 0.'
-    )
-  }
-
-  return { historyFrames, forecastFrames }
 }
 
 export function changeSubstituteModuleVisibility(show: boolean, config: Config): void {

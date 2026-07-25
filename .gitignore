@@ -108,3 +108,6 @@ dist
 debugResponse.json
 
 .DS_Store
+
+# Runtime PNG cache written by node_helper.js (regenerated on every poll cycle)
+cache/

@@ -4,7 +4,7 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 /**
- * Unit tests for MMM-RAIN-MAP visibility logic (displayHoursBeforeRain feature)
+ * Unit tests for MMM-RainfallMapDWD visibility logic (displayHoursBeforeRain feature)
  *
  * These tests verify that the module correctly shows/hides itself based on rain predictions
  * and that it properly tracks its visibility state independently of external module managers

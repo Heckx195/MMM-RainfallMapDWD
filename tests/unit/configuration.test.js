@@ -4,10 +4,12 @@ const fs = require('node:fs')
 const path = require('node:path')
 
 /**
- * Unit tests for MMM-RAIN-MAP configuration defaults and validation
+ * Unit tests for MMM-RainfallMapDWD configuration defaults and validation
  *
- * Tests verify the default configuration values match expectations
- * and are set to reasonable values to avoid API rate limiting.
+ * Tests verify the default configuration values match expectations for the
+ * DWD RADOLAN RV based radar pipeline (node_helper polls DWD directly, so
+ * there is no RainViewer-style client-side rate limiting to guard against
+ * anymore - the polling cadence is governed by pollingIntervalMinutes).
  *
  * Note: We parse the TypeScript source directly to avoid loading
  * the compiled module which includes the entire Leaflet library.
@@ -28,7 +30,9 @@ function extractDefaults() {
     { key: 'defaultZoomLevel', regex: /defaultZoomLevel:\s*(\d+)/ },
     { key: 'maxHistoryFrames', regex: /maxHistoryFrames:\s*(-?\d+)/ },
     { key: 'maxForecastFrames', regex: /maxForecastFrames:\s*(-?\d+)/ },
-    { key: 'updateIntervalInSeconds', regex: /updateIntervalInSeconds:\s*(\d+)/ }
+    { key: 'pollingIntervalMinutes', regex: /pollingIntervalMinutes:\s*(\d+)/ },
+    { key: 'radarRasterWidth', regex: /radarRasterWidth:\s*(\d+)/ },
+    { key: 'radarRasterHeight', regex: /radarRasterHeight:\s*(\d+)/ }
   ]
 
   for (const { key, regex } of patterns) {
@@ -38,59 +42,68 @@ function extractDefaults() {
     }
   }
 
+  const colorSchemeMatch = content.match(/radarColorScheme:\s*'(\w+)'/)
+  defaults.radarColorScheme = colorSchemeMatch ? colorSchemeMatch[1] : null
+
   return defaults
 }
 
 const defaults = extractDefaults()
 
-describe('MMM-RAIN-MAP Configuration', () => {
+describe('MMM-RainfallMapDWD Configuration', () => {
   describe('Default Values', () => {
     test('defaults were extracted from source', () => {
       assert.ok(defaults, 'Defaults should be extracted')
       assert.ok(Object.keys(defaults).length > 0, 'Defaults should have values')
     })
 
-    test('animationSpeedMs is set to 800 (optimized for API load)', () => {
+    test('animationSpeedMs is set to 800', () => {
       assert.equal(defaults.animationSpeedMs, 800)
     })
 
-    test('defaultZoomLevel is set to 6 (optimized for API load)', () => {
+    test('defaultZoomLevel is set to 6', () => {
       assert.equal(defaults.defaultZoomLevel, 6)
     })
 
-    test('maxHistoryFrames is set to 6 (optimized for API load)', () => {
+    test('maxHistoryFrames is set to 6', () => {
       assert.equal(defaults.maxHistoryFrames, 6)
     })
 
-    test('maxForecastFrames is set to 0 (forecast unavailable in free API)', () => {
-      assert.equal(defaults.maxForecastFrames, 0)
+    test('maxForecastFrames defaults to -1 (all available, up to the 2h DWD RV horizon)', () => {
+      assert.equal(defaults.maxForecastFrames, -1)
     })
 
-    test('updateIntervalInSeconds is set to 600 (aligned with API)', () => {
-      assert.equal(defaults.updateIntervalInSeconds, 600)
+    test('pollingIntervalMinutes defaults to 5 (DWD RV native product interval)', () => {
+      assert.equal(defaults.pollingIntervalMinutes, 5)
+    })
+
+    test('radarRasterWidth/Height are set to a sensible default (DE1200 aspect ratio)', () => {
+      assert.equal(defaults.radarRasterWidth, 800)
+      assert.equal(defaults.radarRasterHeight, 873)
+    })
+
+    test('radarColorScheme defaults to "blue"', () => {
+      assert.equal(defaults.radarColorScheme, 'blue')
     })
   })
 
-  describe('API Rate Limiting Prevention', () => {
-    test('total frames (history + forecast) does not exceed 12', () => {
-      const totalFrames = defaults.maxHistoryFrames + defaults.maxForecastFrames
-      assert.ok(totalFrames <= 12, `Total frames (${totalFrames}) should not exceed 12 to reduce API load`)
-    })
-
-    test('animationSpeedMs is at least 500ms', () => {
-      assert.ok(defaults.animationSpeedMs >= 500, 'Animation should be at least 500ms to reduce tile requests')
-    })
-
-    test('defaultZoomLevel is reasonable (4-7, limited by RainViewer API)', () => {
-      const zoom = defaults.defaultZoomLevel
-      assert.ok(
-        zoom >= 4 && zoom <= 7,
-        `Zoom level ${zoom} should be between 4-7 (RainViewer radar tiles do not support zoom > 7)`
+  describe('DWD polling configuration sanity', () => {
+    test('pollingIntervalMinutes is a positive multiple of 5 (DWD only publishes every 5 minutes)', () => {
+      assert.ok(defaults.pollingIntervalMinutes > 0, 'pollingIntervalMinutes must be positive')
+      assert.equal(
+        defaults.pollingIntervalMinutes % 5,
+        0,
+        'pollingIntervalMinutes must be a multiple of 5 to align with DWD RV file timestamps'
       )
     })
 
-    test('updateIntervalInSeconds is at least 5 minutes', () => {
-      assert.ok(defaults.updateIntervalInSeconds >= 300, 'Update interval should be at least 5 minutes (300s)')
+    test('animationSpeedMs is at least 500ms (keeps the animation legible)', () => {
+      assert.ok(defaults.animationSpeedMs >= 500)
+    })
+
+    test('radarRasterWidth/Height are positive', () => {
+      assert.ok(defaults.radarRasterWidth > 0)
+      assert.ok(defaults.radarRasterHeight > 0)
     })
   })
 })

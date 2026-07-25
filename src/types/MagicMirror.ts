@@ -40,3 +40,15 @@ export interface OpenWeatherPayload {
     weather?: { icon: string }[]
   }
 }
+
+export interface DwdRadarFrame {
+  time: number
+  fileName: string
+}
+
+export interface DwdRadarFramesPayload {
+  identifier: string
+  bounds: { south: number; west: number; north: number; east: number } | null
+  history: DwdRadarFrame[]
+  forecast: DwdRadarFrame[]
+}
