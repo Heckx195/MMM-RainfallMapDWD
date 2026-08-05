@@ -4,14 +4,14 @@ const { colorFor } = require('../../backend/colorRamps')
 
 describe('colorFor', () => {
   test('0 mm/h is fully transparent on both ramps', () => {
-    for (const scheme of ['blue', 'classic', 'violet']) {
+    for (const scheme of ['blue', 'classic', 'violet', 'dwd']) {
       const [, , , a] = colorFor(0, scheme)
       assert.equal(a, 0)
     }
   })
 
   test('color intensity/alpha increases monotonically with rainfall rate', () => {
-    for (const scheme of ['blue', 'classic', 'violet']) {
+    for (const scheme of ['blue', 'classic', 'violet', 'dwd']) {
       const rates = [0, 0.2, 1, 4, 10, 25, 50, 100]
       let lastAlpha = -1
       for (const rate of rates) {
@@ -23,9 +23,14 @@ describe('colorFor', () => {
   })
 
   test('values above the highest stop clamp to the last color', () => {
-    for (const scheme of ['blue', 'classic', 'violet']) {
-      const atMax = colorFor(100, scheme)
-      const wayAboveMax = colorFor(500, scheme)
+    for (const [scheme, maxStop] of [
+      ['blue', 100],
+      ['classic', 100],
+      ['violet', 100],
+      ['dwd', 170]
+    ]) {
+      const atMax = colorFor(maxStop, scheme)
+      const wayAboveMax = colorFor(maxStop * 5, scheme)
       assert.deepEqual(wayAboveMax, atMax)
     }
   })
@@ -42,7 +47,7 @@ describe('colorFor', () => {
   })
 
   test('returns RGBA components within valid byte range', () => {
-    for (const scheme of ['blue', 'classic', 'violet']) {
+    for (const scheme of ['blue', 'classic', 'violet', 'dwd']) {
       for (const rate of [0, 0.5, 5, 50, 200]) {
         const [r, g, b, a] = colorFor(rate, scheme)
         for (const c of [r, g, b, a]) {

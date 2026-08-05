@@ -39,7 +39,7 @@ function tarUrl(ts) {
  */
 class DwdRvClient {
   /**
-   * @param {{ cacheDir: string, outWidth: number, outHeight: number, colorScheme: 'blue'|'classic'|'violet', log?: typeof console }} options
+   * @param {{ cacheDir: string, outWidth: number, outHeight: number, colorScheme: 'blue'|'classic'|'violet'|'dwd', log?: typeof console }} options
    */
   constructor({ cacheDir, outWidth, outHeight, colorScheme, log = console }) {
     this.cacheDir = cacheDir

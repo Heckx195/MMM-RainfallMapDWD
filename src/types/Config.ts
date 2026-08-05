@@ -27,7 +27,7 @@ export interface Config {
   /** Height, in pixels, of the reprojected radar overlay rendered by node_helper (independent of mapWidth/mapHeight - see README). */
   radarRasterHeight: number
   /** Color ramp used by node_helper to render precipitation intensity. */
-  radarColorScheme: 'blue' | 'classic' | 'violet'
+  radarColorScheme: 'blue' | 'classic' | 'violet' | 'dwd'
 }
 
 export interface Marker {

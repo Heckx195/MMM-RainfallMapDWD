@@ -9,7 +9,7 @@ const { colorFor } = require('./colorRamps')
  * @param {Float32Array} grid mm per 5-minute interval, NaN = no data, length = width*height
  * @param {number} width
  * @param {number} height
- * @param {'blue'|'classic'|'violet'} colorScheme
+ * @param {'blue'|'classic'|'violet'|'dwd'} colorScheme
  * @returns {Buffer} PNG file bytes
  */
 function renderRadarPng(grid, width, height, colorScheme) {
