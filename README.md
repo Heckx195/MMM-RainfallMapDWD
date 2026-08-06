@@ -1,11 +1,17 @@
 # MMM-RainfallMapDWD
 
-A Rain Radar Map for the [MagicMirror²](https://magicmirror.builders/) platform, based on **official German Weather Service (Deutscher Wetterdienst / DWD) open radar data** - including a genuine ~2 hour precipitation **forecast**, not just a look back in time.
+A Rain Radar Map for the [MagicMirror²](https://magicmirror.builders/) platform, based on **official German Weather Service (Deutscher Wetterdienst / DWD) open radar data**, including a real ~2 hour precipitation **forecast**, not just a look back in time.
 
 This module is a fork of [MMM-RAIN-MAP](https://github.com/jalibu/MMM-RAIN-MAP) by jalibu. The map rendering (Leaflet + OpenStreetMap), animation, timeline and weather-conditional show/hide behavior are unchanged; what changed is the data source and how the radar overlay is produced.
 
+## Demos
+
+<div align="center">
+  <img src="./docs/demo1.gif" width="33%" style="margin-right: 50px;"> <img src="./docs/demo2.gif" width="33%">
+</div>
+
 > [!IMPORTANT]
-> Because this module relies on DWD's RADOLAN RV radar product, it only has data coverage for **Germany** (plus a small margin into neighboring countries covered by the DWD composite grid, [official coverage map (PDF)](https://www.dwd.de/DE/leistungen/radarprodukte/radarkomposit_rv.pdf?__blob=publicationFile)). Map positions outside that coverage area will show an empty/transparent radar overlay. If you need rain radar for other regions, use the original [MMM-RAIN-MAP](https://github.com/jalibu/MMM-RAIN-MAP), which is based on the globally available RainViewer API.
+> Because this module relies on DWD's RADOLAN RV radar product, it only has data coverage for **Germany** (plus a margin into neighboring countries covered by the DWD composite grid, [official coverage map (PDF)](https://www.dwd.de/DE/leistungen/radarprodukte/radarkomposit_rv.pdf?__blob=publicationFile)). Map positions outside that coverage area will show an empty/transparent radar overlay. If you need rain radar for other regions, use the original [MMM-RAIN-MAP](https://github.com/jalibu/MMM-RAIN-MAP), which is based on the globally available RainViewer API.
 
 ## Why a fork?
 
@@ -42,9 +48,7 @@ Because DWD only publishes raw gridded data (no ready-made map tiles), a `node_h
 - Option to only show in current rainy weather conditions. Works only together with [weather](https://github.com/MagicMirrorOrg/MagicMirror/tree/master/modules/default/weather) or [MMM-OpenWeatherForecast](https://github.com/jclarke0000/MMM-OpenWeatherForecast) as dependency.
 - (Experimental) Option to hide other modules in case of rain in favor to get more space.
 
-### Demos
 
-[Placeholder for demo GIFs]
 
 ## Installation
 
@@ -78,14 +82,12 @@ Add the module configuration into the `MagicMirror/config/config.js` file:
         extraDelayCurrentFrameMs: 5000,
         invertColors: false,
         markers: [
-          { lat: 49.41, lng: 8.717, color: "red" },
-          { lat: 48.856, lng: 2.35, color: "green" }
+          { lat: 48.14, lng: 11.58, color: "red", size: "2x" },
+          { lat: 48.86, lng: 2.35, color: "green" }
         ],
         mapPositions: [
-          { lat: 49.41, lng: 8.717, zoom: 7, loops: 1 },
-          { lat: 49.41, lng: 8.717, zoom: 5, loops: 2 },
-          { lat: 48.856, lng: 2.35, zoom: 5, loops: 1 },
-          { lat: 48.856, lng: 2.35, zoom: 7, loops: 2 },
+          { lat: 48.14, lng: 11.58, zoom: 7, loops: 1 },
+          { lat: 48.86, lng: 2.35, zoom: 5, loops: 2 },
           { lat: 49.15, lng: 6.154, zoom: 4, loops: 2 }
         ],
         mapUrl: "https://a.tile.openstreetmap.de/{z}/{x}/{y}.png",
@@ -149,17 +151,18 @@ Markers are **visual pin icons** placed on the map at specific coordinates. They
 | `lat`   | **Required:** Marker's latitude.<br><br>**Type:** `float`                                                                                 |
 | `lng`   | **Required:** Marker's longitude.<br><br>**Type:** `float`                                                                                |
 | `color` | Marker's color.<br><br>**Possible values:** `'black','blue','gold','green','grey','orange','red','violet','yellow'`<br>**Type:** `string` |
+| `size`  | Marker's icon size. `'2x'` renders a larger pin (and shadow) for better visibility.<br><br>**Possible values:** `'normal','2x'`<br>**Default:** `'normal'`<br>**Type:** `string` |
 
 ### MapPosition Object
 
-Map positions define the **visible map area** — where the map is centered and at what zoom level. The map cycles through all configured positions, staying at each one for the configured number of animation loops.
+Map positions define the center of the **visible map area** and at what zoom level. The map cycles through all configured positions, staying at each one for the configured number of animation loops.
 
 | Option  | Description                                                                                                                                 |
 | ------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `lat`   | **Required:** Position's latitude.<br><br>**Type:** `float`                                                                                 |
 | `lng`   | **Required:** Position's longitude.<br><br>**Type:** `float`                                                                                |
 | `zoom`  | Either set a zoom level or defaultZoomLevel is used.<br><br>**Type:** `number`                                                              |
-| `loops` | Number of loops/iterations until the map moves to the next position. If no number is set, a value of `1` is used.<br><br>**Type:** `number` |
+| `loops` | Number of loops/ iterations until the map moves to the next position. If no number is set, a value of `1` is used.<br><br>**Type:** `number` |
 
 ## How it works
 
@@ -171,7 +174,7 @@ Map positions define the **visible map area** — where the map is centered and 
 4. Renders it to a colorized, transparent-where-dry PNG (`backend/radarPngRenderer.js`).
 5. Tracks the rolling history + latest forecast frame set (`backend/frameStore.js`) and pushes it to the frontend via a socket notification.
 
-The frontend (`src/frontend/Frontend.ts`) places each frame as a Leaflet `ImageOverlay` and crossfades between them on a timer - the same animation/timeline mechanism the original module used for its tile layers.
+The frontend (`src/frontend/Frontend.ts`) places each frame as a Leaflet `ImageOverlay` and crossfades between them on a timer. The same animation/timeline mechanism of the original module is used for these tile layers.
 
 On first startup, history is backfilled immediately from DWD's rolling ~48h archive instead of waiting for it to accumulate one poll cycle at a time.
 
