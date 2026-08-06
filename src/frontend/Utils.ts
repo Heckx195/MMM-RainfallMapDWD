@@ -6,6 +6,7 @@ import { MMGlobal } from '../types/MagicMirror'
 declare const MM: MMGlobal
 
 const supportedIconColors = ['black', 'blue', 'gold', 'green', 'grey', 'orange', 'red', 'violet', 'yellow'] as const
+const supportedIconSizes = ['normal', '2x'] as const
 
 export const rainConditions = [
   '09d',
@@ -27,6 +28,12 @@ export function getIconColor(marker: Marker): string {
   return marker.color && supportedIconColors.includes(marker.color as (typeof supportedIconColors)[number])
     ? marker.color
     : 'red'
+}
+
+export function getIconSize(marker: Marker): (typeof supportedIconSizes)[number] {
+  return marker.size && supportedIconSizes.includes(marker.size as (typeof supportedIconSizes)[number])
+    ? marker.size
+    : 'normal'
 }
 
 export function changeSubstituteModuleVisibility(show: boolean, config: Config, lockString: string): void {

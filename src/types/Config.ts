@@ -34,6 +34,7 @@ export interface Marker {
   lat: number
   lng: number
   color?: string
+  size?: 'normal' | '2x'
 }
 
 interface MapPosition {

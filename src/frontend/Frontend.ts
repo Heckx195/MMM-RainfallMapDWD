@@ -1,6 +1,6 @@
 import * as L from 'leaflet'
 import * as Log from 'logger'
-import { changeSubstituteModuleVisibility, getIconColor, rainConditions } from './Utils'
+import { changeSubstituteModuleVisibility, getIconColor, getIconSize, rainConditions } from './Utils'
 import { Config } from '../types/Config'
 import {
   WeatherPayload,
@@ -141,14 +141,19 @@ Module.register<Config>('MMM-RainfallMapDWD', {
     L.tileLayer(this.config.mapUrl.split('$').join('')).addTo(this.runtimeData.map)
 
     for (const marker of this.config.markers) {
+      const is2x = getIconSize(marker) === '2x'
+      const iconFilePrefix = is2x ? 'marker-icon-2x' : 'marker-icon'
+      // marker-shadow.png only ships in one resolution, stretched to match at 2x size.
+      const [iconWidth, iconHeight] = is2x ? [50, 82] : [25, 41]
+
       L.marker([marker.lat, marker.lng], {
         icon: new L.Icon({
-          iconUrl: this.file(`img/marker-icon-2x-${getIconColor(marker)}.png`),
+          iconUrl: this.file(`img/${iconFilePrefix}-${getIconColor(marker)}.png`),
           shadowUrl: this.file(`img/marker-shadow.png`),
-          iconSize: [25, 41],
-          iconAnchor: [12, 41],
-          shadowSize: [41, 41],
-          shadowAnchor: [12, 41]
+          iconSize: [iconWidth, iconHeight],
+          iconAnchor: [iconWidth / 2, iconHeight],
+          shadowSize: [iconHeight, iconHeight],
+          shadowAnchor: [iconWidth / 2, iconHeight]
         })
       }).addTo(this.runtimeData.map)
     }
