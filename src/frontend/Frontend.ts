@@ -383,6 +383,15 @@ Module.register<Config>('MMM-RainfallMapDWD', {
   },
 
   handleWeatherUpdate(update: WeatherPayload) {
+    // If it's currently raining, always show the module regardless of the hourly forecast.
+    // The hourly forecast may not reflect current conditions (rain ending soon, coarse
+    // hourly buckets, or providers that don't include the current hour).
+    const currentCondition = update.currentWeather?.weatherType
+    if (currentCondition && rainConditions.some((condition) => currentCondition.includes(condition))) {
+      this.handleCurrentWeatherCondition('rain')
+      return
+    }
+
     const hourlyData = update.hourlyArray
     if (!hourlyData) {
       return
@@ -391,8 +400,12 @@ Module.register<Config>('MMM-RainfallMapDWD', {
     const now = Date.now()
     for (const entry of hourlyData) {
       if (rainConditions.some((condition) => entry.weatherType.includes(condition))) {
-        if (entry.date - now < closestRain) {
-          closestRain = entry.date - now
+        const timeToRain = entry.date - now
+        // Only count upcoming (or ongoing current-hour) rain; past rain must not
+        // trigger visibility - use a small tolerance so a current-hour entry with
+        // a date slightly in the past still counts.
+        if (timeToRain >= -60 * 60 * 1000 && timeToRain < closestRain) {
+          closestRain = timeToRain
         }
       }
     }
