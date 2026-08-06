@@ -286,9 +286,10 @@ Module.register<Config>('MMM-RainfallMapDWD', {
       [payload.bounds.north, payload.bounds.east]
     )
 
-    // Rebuild all overlay layers from scratch - simpler and less error-prone
-    // than reconciling against the previous set, and cheap enough to redo
-    // every poll cycle (every few minutes).
+    // Used to find the correct animationPosition after a rebuild of an updated frame set.
+    const currentTime = this.runtimeData.timeframes[this.runtimeData.animationPosition]?.time
+
+    // Rebuild all overlay layers from scratch (simpler, less error-prone - could be optimized).
     for (const layer of this.runtimeData.radarLayers.values()) {
       this.runtimeData.map.removeLayer(layer)
     }
@@ -306,7 +307,11 @@ Module.register<Config>('MMM-RainfallMapDWD', {
       this.runtimeData.radarLayers.set(frame.time, layer)
     }
 
-    this.runtimeData.animationPosition = 0
+    // Resume at the same timestamp if it still exists in the new frame set.
+    const preservedPosition = this.runtimeData.timeframes.findIndex(
+      (frame: DwdRadarFrame) => frame.time === currentTime
+    )
+    this.runtimeData.animationPosition = preservedPosition >= 0 ? preservedPosition : 0
 
     if (this.config.displayTimeline && this.runtimeData.timeframes.length > 0) {
       this.runtimeData.percentPerFrame = 100 / (this.runtimeData.numHistoryFrames + this.runtimeData.numForecastFrames)
@@ -317,21 +322,19 @@ Module.register<Config>('MMM-RainfallMapDWD', {
       }%, var(--color-forecast) ${forecastPart}%)`
     }
 
-    // Show the first frame immediately - otherwise it stays invisible until the
-    // animation wraps back around to it, since tick() only ever reveals the
-    // *next* frame relative to animationPosition.
-    const firstFrame = this.runtimeData.timeframes[0]
-    if (firstFrame) {
-      const firstLayer = this.runtimeData.radarLayers.get(firstFrame.time)
-      if (firstLayer) {
-        firstLayer.setOpacity(1)
+    // Show the current frame immediately.
+    const currentFrame = this.runtimeData.timeframes[this.runtimeData.animationPosition]
+    if (currentFrame) {
+      const currentLayer = this.runtimeData.radarLayers.get(currentFrame.time)
+      if (currentLayer) {
+        currentLayer.setOpacity(1)
       }
-      this.updateTimeDisplay(firstFrame, 0)
+      this.updateTimeDisplay(currentFrame, this.runtimeData.animationPosition)
     }
   },
 
   suspend() {
-    // Clear animation timer
+    // Clear animation timer.
     if (this.runtimeData.animationTimer) {
       clearTimeout(this.runtimeData.animationTimer)
       this.runtimeData.animationTimer = null
