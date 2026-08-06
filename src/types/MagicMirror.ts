@@ -22,6 +22,9 @@ export interface WeatherPayload {
   current?: {
     weather?: { icon: string }[]
   }
+  currentWeather?: {
+    weatherType?: string
+  }
   type?: string
   hourlyArray?: HourlyWeatherEntry[]
 }
