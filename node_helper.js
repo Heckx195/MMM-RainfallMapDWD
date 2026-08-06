@@ -6,6 +6,11 @@ const { FrameStore } = require('./backend/frameStore')
 
 const MIN_POLLING_INTERVAL_MINUTES = 5
 
+// Reference raster size matching the DE1200 source grid's aspect ratio (1100x1200).
+// radarRasterScale, when set, multiplies these instead of using radarRasterWidth/Height directly.
+const BASE_RASTER_WIDTH = 800
+const BASE_RASTER_HEIGHT = 873
+
 module.exports = NodeHelper.create({
   start() {
     /** @type {Map<string, { client: DwdRvClient, store: FrameStore, timer: NodeJS.Timeout }>} */
@@ -52,11 +57,18 @@ module.exports = NodeHelper.create({
     const maxHistoryFrames =
       config.maxHistoryFrames === -1 ? Math.round(120 / pollingIntervalMinutes) : config.maxHistoryFrames
 
+    let outWidth = config.radarRasterWidth
+    let outHeight = config.radarRasterHeight
+    if (typeof config.radarRasterScale === 'number' && config.radarRasterScale > 0) {
+      outWidth = Math.round(BASE_RASTER_WIDTH * config.radarRasterScale)
+      outHeight = Math.round(BASE_RASTER_HEIGHT * config.radarRasterScale)
+    }
+
     const cacheDir = path.join(this.path, 'cache', identifier)
     const client = new DwdRvClient({
       cacheDir,
-      outWidth: config.radarRasterWidth,
-      outHeight: config.radarRasterHeight,
+      outWidth,
+      outHeight,
       colorScheme: config.radarColorScheme,
       log: Log
     })

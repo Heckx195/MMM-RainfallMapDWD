@@ -22,9 +22,11 @@ export interface Config {
   timezone: string | null
   /** Minutes between DWD radar polls; must be a positive multiple of 5 (DWD's native product interval). */
   pollingIntervalMinutes: number
-  /** Width, in pixels, of the reprojected radar overlay rendered by node_helper (independent of mapWidth/mapHeight - see README). */
+  /** Simple CPU-load/sharpness knob: multiplies the default 800x873 raster size (DE1200-grid). Takes precedence over radarRasterWidth/radarRasterHeight when set. */
+  radarRasterScale?: number
+  /** Advanced: width, in pixels, of the reprojected radar overlay rendered by node_helper (independent of mapWidth/mapHeight - see README). Prefer radarRasterScale unless you need exact control. */
   radarRasterWidth: number
-  /** Height, in pixels, of the reprojected radar overlay rendered by node_helper (independent of mapWidth/mapHeight - see README). */
+  /** Advanced: height, in pixels, of the reprojected radar overlay rendered by node_helper (independent of mapWidth/mapHeight - see README). Prefer radarRasterScale unless you need exact control. */
   radarRasterHeight: number
   /** Color ramp used by node_helper to render precipitation intensity. */
   radarColorScheme: 'blue' | 'classic' | 'violet' | 'dwd'
