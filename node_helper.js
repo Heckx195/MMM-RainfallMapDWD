@@ -27,10 +27,6 @@ module.exports = NodeHelper.create({
   socketNotificationReceived(notification, payload) {
     if (notification === 'DWD_RADAR_CONFIGURE') {
       this._configure(payload.identifier, payload.config)
-    } else if (notification === 'DWD_FRONTEND_LOG') {
-      // To avoid crashing the backend on a malformed log level, default to 'log' if the level is not recognized.
-      const level = typeof Log[payload.level] === 'function' ? payload.level : 'log'
-      Log[level](payload.message)
     }
   },
 
