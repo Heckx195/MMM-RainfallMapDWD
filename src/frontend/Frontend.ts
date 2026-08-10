@@ -382,16 +382,28 @@ Module.register<Config>('MMM-RainfallMapDWD', {
     }
   },
 
+  // Log a display-decision message both in the renderer DevTools console (via the
+  // regular browser Log) and forwarded to node_helper, so it also lands in the
+  // Node process's stdout (and therefore in a file/PM2/systemd log), the same way
+  // backend logs (e.g. dwdRvClient.js's this.log.log(...)) already do. Renderer
+  // console output does not cross the process boundary to the main process on its
+  // own (Electron's --enable-logging switch does not forward it either), so this
+  // explicit forward is required.
+  logDecision(level: 'log' | 'info' | 'warn' | 'error', message: string) {
+    Log[level](message)
+    this.sendSocketNotification('DWD_FRONTEND_LOG', { level, message })
+  },
+
   handleWeatherUpdate(update: WeatherPayload) {
     // If it's currently raining, always show the module regardless of the hourly forecast.
     // The hourly forecast may not reflect current conditions (rain ending soon, coarse
     // hourly buckets, or providers that don't include the current hour).
     const currentCondition = update.currentWeather?.weatherType
     if (currentCondition && rainConditions.some((condition) => currentCondition.includes(condition))) {
-      Log.info(
-        `MMM-RainfallMapDWD: Current weather condition is "${currentCondition}" (matches rain) - showing module regardless of hourly forecast.`
+      this.handleCurrentWeatherCondition(
+        'rain',
+        `current weather condition is "${currentCondition}" (matches rain), regardless of hourly forecast`
       )
-      this.handleCurrentWeatherCondition('rain')
       return
     }
 
@@ -415,26 +427,29 @@ Module.register<Config>('MMM-RainfallMapDWD', {
     closestRain = closestRain / 1000 / 60 / 60 // convert to hours
     const threshold = this.config.displayHoursBeforeRain
     if (closestRain < threshold) {
-      Log.info(
-        `MMM-RainfallMapDWD: Next rain in ${closestRain.toFixed(1)}h is within the configured displayHoursBeforeRain threshold (${threshold}h) - showing module.`
+      this.handleCurrentWeatherCondition(
+        'rain',
+        `next rain in ${closestRain.toFixed(1)}h is within the configured displayHoursBeforeRain threshold (${threshold}h)`
       )
-      this.handleCurrentWeatherCondition('rain')
     } else {
       const closestRainText = Number.isFinite(closestRain) ? `${closestRain.toFixed(1)}h` : 'not forecasted in the available data'
-      Log.info(
-        `MMM-RainfallMapDWD: Next rain (${closestRainText}) is outside the configured displayHoursBeforeRain threshold (${threshold}h) - hiding module.`
+      this.handleCurrentWeatherCondition(
+        '',
+        `next rain (${closestRainText}) is outside the configured displayHoursBeforeRain threshold (${threshold}h)`
       )
-      this.handleCurrentWeatherCondition('')
     }
   },
 
-  handleCurrentWeatherCondition(currentCondition: string) {
+  // `reason` is optional and only provided by handleWeatherUpdate, which already knows
+  // *why* the condition is what it is (matched current condition vs. hourly forecast
+  // threshold). When called directly (displayHoursBeforeRain === 0 path), it falls back
+  // to stating the raw currentCondition.
+  handleCurrentWeatherCondition(currentCondition: string, reason?: string) {
+    const reasonText = reason ?? `currentCondition="${currentCondition || 'none'}"`
     if (currentCondition && rainConditions.some((condition) => currentCondition.includes(condition))) {
       // Rain detected - show module if it was hidden due to no rain
       if (this.runtimeData.isHiddenDueToNoRain) {
-        Log.info(
-          `MMM-RainfallMapDWD: Showing module - rain detected (currentCondition="${currentCondition}").`
-        )
+        this.logDecision('info', `MMM-RainfallMapDWD: Showing module - ${reasonText}.`)
         this.runtimeData.isHiddenDueToNoRain = false
         changeSubstituteModuleVisibility(false, this.config, this.identifier)
         this.show(300, undefined, { lockString: this.identifier })
@@ -443,16 +458,12 @@ Module.register<Config>('MMM-RainfallMapDWD', {
           this.play()
         }
       } else {
-        Log.info(
-          `MMM-RainfallMapDWD: Module stays visible - rain still detected (currentCondition="${currentCondition}").`
-        )
+        this.logDecision('info', `MMM-RainfallMapDWD: Module stays visible - ${reasonText}.`)
       }
     } else {
       // No rain - hide module if currently shown
       if (!this.runtimeData.isHiddenDueToNoRain) {
-        Log.info(
-          `MMM-RainfallMapDWD: Hiding module - no rain detected (currentCondition="${currentCondition || 'none'}").`
-        )
+        this.logDecision('info', `MMM-RainfallMapDWD: Hiding module - ${reasonText}.`)
         this.runtimeData.isHiddenDueToNoRain = true
         this.hide(300, undefined, { lockString: this.identifier })
         // Stop animation to save resources
@@ -462,9 +473,7 @@ Module.register<Config>('MMM-RainfallMapDWD', {
         }
         changeSubstituteModuleVisibility(true, this.config, this.identifier)
       } else {
-        Log.info(
-          `MMM-RainfallMapDWD: Module stays hidden - still no rain detected (currentCondition="${currentCondition || 'none'}").`
-        )
+        this.logDecision('info', `MMM-RainfallMapDWD: Module stays hidden - ${reasonText}.`)
       }
     }
   }
