@@ -388,6 +388,9 @@ Module.register<Config>('MMM-RainfallMapDWD', {
     // hourly buckets, or providers that don't include the current hour).
     const currentCondition = update.currentWeather?.weatherType
     if (currentCondition && rainConditions.some((condition) => currentCondition.includes(condition))) {
+      Log.info(
+        `MMM-RainfallMapDWD: Current weather condition is "${currentCondition}" (matches rain) - showing module regardless of hourly forecast.`
+      )
       this.handleCurrentWeatherCondition('rain')
       return
     }
@@ -410,10 +413,17 @@ Module.register<Config>('MMM-RainfallMapDWD', {
       }
     }
     closestRain = closestRain / 1000 / 60 / 60 // convert to hours
-    Log.log('Next rain will be in %.1f hours.', closestRain)
-    if (closestRain < this.config.displayHoursBeforeRain) {
+    const threshold = this.config.displayHoursBeforeRain
+    if (closestRain < threshold) {
+      Log.info(
+        `MMM-RainfallMapDWD: Next rain in ${closestRain.toFixed(1)}h is within the configured displayHoursBeforeRain threshold (${threshold}h) - showing module.`
+      )
       this.handleCurrentWeatherCondition('rain')
     } else {
+      const closestRainText = Number.isFinite(closestRain) ? `${closestRain.toFixed(1)}h` : 'not forecasted in the available data'
+      Log.info(
+        `MMM-RainfallMapDWD: Next rain (${closestRainText}) is outside the configured displayHoursBeforeRain threshold (${threshold}h) - hiding module.`
+      )
       this.handleCurrentWeatherCondition('')
     }
   },
@@ -422,6 +432,9 @@ Module.register<Config>('MMM-RainfallMapDWD', {
     if (currentCondition && rainConditions.some((condition) => currentCondition.includes(condition))) {
       // Rain detected - show module if it was hidden due to no rain
       if (this.runtimeData.isHiddenDueToNoRain) {
+        Log.info(
+          `MMM-RainfallMapDWD: Showing module - rain detected (currentCondition="${currentCondition}").`
+        )
         this.runtimeData.isHiddenDueToNoRain = false
         changeSubstituteModuleVisibility(false, this.config, this.identifier)
         this.show(300, undefined, { lockString: this.identifier })
@@ -429,10 +442,17 @@ Module.register<Config>('MMM-RainfallMapDWD', {
         if (!this.runtimeData.animationTimer) {
           this.play()
         }
+      } else {
+        Log.debug(
+          `MMM-RainfallMapDWD: Module stays visible - rain still detected (currentCondition="${currentCondition}").`
+        )
       }
     } else {
       // No rain - hide module if currently shown
       if (!this.runtimeData.isHiddenDueToNoRain) {
+        Log.info(
+          `MMM-RainfallMapDWD: Hiding module - no rain detected (currentCondition="${currentCondition || 'none'}").`
+        )
         this.runtimeData.isHiddenDueToNoRain = true
         this.hide(300, undefined, { lockString: this.identifier })
         // Stop animation to save resources
@@ -441,6 +461,10 @@ Module.register<Config>('MMM-RainfallMapDWD', {
           this.runtimeData.animationTimer = null
         }
         changeSubstituteModuleVisibility(true, this.config, this.identifier)
+      } else {
+        Log.debug(
+          `MMM-RainfallMapDWD: Module stays hidden - still no rain detected (currentCondition="${currentCondition || 'none'}").`
+        )
       }
     }
   }
