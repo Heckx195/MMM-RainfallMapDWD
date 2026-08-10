@@ -443,7 +443,7 @@ Module.register<Config>('MMM-RainfallMapDWD', {
           this.play()
         }
       } else {
-        Log.debug(
+        Log.info(
           `MMM-RainfallMapDWD: Module stays visible - rain still detected (currentCondition="${currentCondition}").`
         )
       }
@@ -462,7 +462,7 @@ Module.register<Config>('MMM-RainfallMapDWD', {
         }
         changeSubstituteModuleVisibility(true, this.config, this.identifier)
       } else {
-        Log.debug(
+        Log.info(
           `MMM-RainfallMapDWD: Module stays hidden - still no rain detected (currentCondition="${currentCondition || 'none'}").`
         )
       }
