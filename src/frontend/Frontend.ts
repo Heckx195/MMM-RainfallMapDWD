@@ -7,7 +7,8 @@ import {
   CurrentWeatherPayload,
   OpenWeatherPayload,
   DwdRadarFramesPayload,
-  DwdRadarFrame
+  DwdRadarFrame,
+  NotificationSender
 } from '../types/MagicMirror'
 
 // Global or injected variable declarations
@@ -360,7 +361,8 @@ Module.register<Config>('MMM-RainfallMapDWD', {
 
   notificationReceived(
     notificationIdentifier: string,
-    payload: WeatherPayload | CurrentWeatherPayload | OpenWeatherPayload
+    payload: WeatherPayload | CurrentWeatherPayload | OpenWeatherPayload,
+    sender?: NotificationSender
   ) {
     if (this.config.displayHoursBeforeRain >= 0) {
       if (notificationIdentifier === 'DOM_OBJECTS_CREATED') {
@@ -375,14 +377,33 @@ Module.register<Config>('MMM-RainfallMapDWD', {
           this.handleCurrentWeatherCondition(currentCondition)
         }
       } else if (this.config.displayHoursBeforeRain > 0) {
-        if (notificationIdentifier === 'WEATHER_UPDATED') {
+        // If multiple "weather" module instances are configured, take only the hourly one.
+        if (notificationIdentifier === 'WEATHER_UPDATED' && (!sender?.config?.type || sender.config.type === 'hourly')) {
           this.handleWeatherUpdate(payload as WeatherPayload)
         }
       }
     }
   },
 
+  // Log both in the renderer DevTools console and forwarded to node_helper (stdout)
+  logDecision(level: 'log' | 'info' | 'warn' | 'error', message: string) {
+    Log[level](message)
+    this.sendSocketNotification('DWD_FRONTEND_LOG', { level, message })
+  },
+
   handleWeatherUpdate(update: WeatherPayload) {
+    // If it's currently raining, always show the module regardless of the hourly forecast.
+    // The hourly forecast may not reflect current conditions (rain ending soon, coarse
+    // hourly buckets, or providers that don't include the current hour).
+    const currentCondition = update.currentWeather?.weatherType
+    if (currentCondition && rainConditions.some((condition) => currentCondition.includes(condition))) {
+      this.handleCurrentWeatherCondition(
+        'rain',
+        `current weather condition is "${currentCondition}" (matches rain), regardless of hourly forecast`
+      )
+      return
+    }
+
     const hourlyData = update.hourlyArray
     if (!hourlyData) {
       return
@@ -391,24 +412,41 @@ Module.register<Config>('MMM-RainfallMapDWD', {
     const now = Date.now()
     for (const entry of hourlyData) {
       if (rainConditions.some((condition) => entry.weatherType.includes(condition))) {
-        if (entry.date - now < closestRain) {
-          closestRain = entry.date - now
+        const timeToRain = entry.date - now
+        // Only count upcoming (or ongoing current-hour) rain; past rain must not
+        // trigger visibility - use a small tolerance so a current-hour entry with
+        // a date slightly in the past still counts.
+        if (timeToRain >= -60 * 60 * 1000 && timeToRain < closestRain) {
+          closestRain = timeToRain
         }
       }
     }
     closestRain = closestRain / 1000 / 60 / 60 // convert to hours
-    Log.log('Next rain will be in %.1f hours.', closestRain)
-    if (closestRain < this.config.displayHoursBeforeRain) {
-      this.handleCurrentWeatherCondition('rain')
+    const threshold = this.config.displayHoursBeforeRain
+    if (closestRain < threshold) {
+      this.handleCurrentWeatherCondition(
+        'rain',
+        `next rain in ${closestRain.toFixed(1)}h is within the configured displayHoursBeforeRain threshold (${threshold}h)`
+      )
     } else {
-      this.handleCurrentWeatherCondition('')
+      const closestRainText = Number.isFinite(closestRain) ? `${closestRain.toFixed(1)}h` : 'not forecasted in the available data'
+      this.handleCurrentWeatherCondition(
+        '',
+        `next rain (${closestRainText}) is outside the configured displayHoursBeforeRain threshold (${threshold}h)`
+      )
     }
   },
 
-  handleCurrentWeatherCondition(currentCondition: string) {
+  // `reason` is optional and only provided by handleWeatherUpdate, which already knows
+  // *why* the condition is what it is (matched current condition vs. hourly forecast
+  // threshold). When called directly (displayHoursBeforeRain === 0 path), it falls back
+  // to stating the raw currentCondition.
+  handleCurrentWeatherCondition(currentCondition: string, reason?: string) {
+    const reasonText = reason ?? `currentCondition="${currentCondition || 'none'}"`
     if (currentCondition && rainConditions.some((condition) => currentCondition.includes(condition))) {
       // Rain detected - show module if it was hidden due to no rain
       if (this.runtimeData.isHiddenDueToNoRain) {
+        this.logDecision('info', `MMM-RainfallMapDWD: Showing module - ${reasonText}.`)
         this.runtimeData.isHiddenDueToNoRain = false
         changeSubstituteModuleVisibility(false, this.config, this.identifier)
         this.show(300, undefined, { lockString: this.identifier })
@@ -416,10 +454,13 @@ Module.register<Config>('MMM-RainfallMapDWD', {
         if (!this.runtimeData.animationTimer) {
           this.play()
         }
+      } else {
+        this.logDecision('info', `MMM-RainfallMapDWD: Module stays visible - ${reasonText}.`)
       }
     } else {
       // No rain - hide module if currently shown
       if (!this.runtimeData.isHiddenDueToNoRain) {
+        this.logDecision('info', `MMM-RainfallMapDWD: Hiding module - ${reasonText}.`)
         this.runtimeData.isHiddenDueToNoRain = true
         this.hide(300, undefined, { lockString: this.identifier })
         // Stop animation to save resources
@@ -428,6 +469,8 @@ Module.register<Config>('MMM-RainfallMapDWD', {
           this.runtimeData.animationTimer = null
         }
         changeSubstituteModuleVisibility(true, this.config, this.identifier)
+      } else {
+        this.logDecision('info', `MMM-RainfallMapDWD: Module stays hidden - ${reasonText}.`)
       }
     }
   }

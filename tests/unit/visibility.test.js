@@ -111,14 +111,21 @@ function handleCurrentWeatherCondition(module, currentCondition) {
  * Simplified version of handleWeatherUpdate from Frontend.ts
  */
 function handleWeatherUpdate(module, update) {
+  const currentCondition = update.currentWeather?.weatherType
+  if (currentCondition && rainConditions.some((condition) => currentCondition.includes(condition))) {
+    handleCurrentWeatherCondition(module, 'rain')
+    return
+  }
+
   const hourlyData = update.hourlyArray
   let closestRain = Infinity
   const now = Date.now()
 
   for (const entry of hourlyData) {
     if (rainConditions.some((condition) => entry.weatherType.includes(condition))) {
-      if (entry.date - now < closestRain) {
-        closestRain = entry.date - now
+      const timeToRain = entry.date - now
+      if (timeToRain >= -60 * 60 * 1000 && timeToRain < closestRain) {
+        closestRain = timeToRain
       }
     }
   }
@@ -314,6 +321,65 @@ describe('handleWeatherUpdate', () => {
     handleWeatherUpdate(module, update)
 
     assert.equal(module.runtimeData.isHiddenDueToNoRain, true, 'should hide when no data available')
+    assert.equal(module._calls.hide.length, 1)
+  })
+
+  test('shows module when currently raining even if hourly forecast has no upcoming rain', () => {
+    // Regression: displayHoursBeforeRain: 2 must show the module when it's currently raining,
+    // even if the hourly forecast shows no rain in the next 2 hours (e.g. rain ending soon,
+    // or provider does not include the current hour in hourlyArray).
+    const module = createMockModule({ displayHoursBeforeRain: 2 })
+    module.runtimeData.isHiddenDueToNoRain = true
+    const now = Date.now()
+
+    const update = {
+      currentWeather: { weatherType: 'rain' },
+      hourlyArray: [
+        { date: now + 1000 * 60 * 60 * 1, weatherType: 'clear' },
+        { date: now + 1000 * 60 * 60 * 2, weatherType: 'clear' },
+        { date: now + 1000 * 60 * 60 * 3, weatherType: 'clear' }
+      ]
+    }
+
+    handleWeatherUpdate(module, update)
+
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'should show when currently raining')
+    assert.equal(module._calls.show.length, 1)
+  })
+
+  test('shows module when currently raining using openweathermap icon code', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 2 })
+    module.runtimeData.isHiddenDueToNoRain = true
+    const now = Date.now()
+
+    const update = {
+      currentWeather: { weatherType: '10d' },
+      hourlyArray: [{ date: now + 1000 * 60 * 60 * 3, weatherType: 'clear' }]
+    }
+
+    handleWeatherUpdate(module, update)
+
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'should recognize icon codes as rain')
+    assert.equal(module._calls.show.length, 1)
+  })
+
+  test('does not show module when past rain exists but no upcoming rain', () => {
+    // Regression: past rain entries in hourlyArray must not falsely trigger the module.
+    const module = createMockModule({ displayHoursBeforeRain: 2 })
+    const now = Date.now()
+
+    const update = {
+      currentWeather: { weatherType: 'clear' },
+      hourlyArray: [
+        { date: now - 1000 * 60 * 60 * 5, weatherType: 'rain' }, // 5 hours ago
+        { date: now + 1000 * 60 * 60 * 3, weatherType: 'clear' },
+        { date: now + 1000 * 60 * 60 * 4, weatherType: 'clear' }
+      ]
+    }
+
+    handleWeatherUpdate(module, update)
+
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, true, 'should not react to past rain')
     assert.equal(module._calls.hide.length, 1)
   })
 })

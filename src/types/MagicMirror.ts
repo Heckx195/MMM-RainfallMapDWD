@@ -22,6 +22,9 @@ export interface WeatherPayload {
   current?: {
     weather?: { icon: string }[]
   }
+  currentWeather?: {
+    weatherType?: string
+  }
   type?: string
   hourlyArray?: HourlyWeatherEntry[]
 }
@@ -51,4 +54,10 @@ export interface DwdRadarFramesPayload {
   bounds: { south: number; west: number; north: number; east: number } | null
   history: DwdRadarFrame[]
   forecast: DwdRadarFrame[]
+}
+
+export interface NotificationSender {
+  name?: string
+  identifier?: string
+  config?: { type?: string }
 }
