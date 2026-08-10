@@ -7,7 +7,8 @@ import {
   CurrentWeatherPayload,
   OpenWeatherPayload,
   DwdRadarFramesPayload,
-  DwdRadarFrame
+  DwdRadarFrame,
+  NotificationSender
 } from '../types/MagicMirror'
 
 // Global or injected variable declarations
@@ -360,7 +361,8 @@ Module.register<Config>('MMM-RainfallMapDWD', {
 
   notificationReceived(
     notificationIdentifier: string,
-    payload: WeatherPayload | CurrentWeatherPayload | OpenWeatherPayload
+    payload: WeatherPayload | CurrentWeatherPayload | OpenWeatherPayload,
+    sender?: NotificationSender
   ) {
     if (this.config.displayHoursBeforeRain >= 0) {
       if (notificationIdentifier === 'DOM_OBJECTS_CREATED') {
@@ -375,20 +377,15 @@ Module.register<Config>('MMM-RainfallMapDWD', {
           this.handleCurrentWeatherCondition(currentCondition)
         }
       } else if (this.config.displayHoursBeforeRain > 0) {
-        if (notificationIdentifier === 'WEATHER_UPDATED') {
+        // If multiple "weather" module instances are configured, take only the hourly one.
+        if (notificationIdentifier === 'WEATHER_UPDATED' && (!sender?.config?.type || sender.config.type === 'hourly')) {
           this.handleWeatherUpdate(payload as WeatherPayload)
         }
       }
     }
   },
 
-  // Log a display-decision message both in the renderer DevTools console (via the
-  // regular browser Log) and forwarded to node_helper, so it also lands in the
-  // Node process's stdout (and therefore in a file/PM2/systemd log), the same way
-  // backend logs (e.g. dwdRvClient.js's this.log.log(...)) already do. Renderer
-  // console output does not cross the process boundary to the main process on its
-  // own (Electron's --enable-logging switch does not forward it either), so this
-  // explicit forward is required.
+  // Log both in the renderer DevTools console and forwarded to node_helper (stdout)
   logDecision(level: 'log' | 'info' | 'warn' | 'error', message: string) {
     Log[level](message)
     this.sendSocketNotification('DWD_FRONTEND_LOG', { level, message })

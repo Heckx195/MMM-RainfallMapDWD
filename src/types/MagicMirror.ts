@@ -55,3 +55,9 @@ export interface DwdRadarFramesPayload {
   history: DwdRadarFrame[]
   forecast: DwdRadarFrame[]
 }
+
+export interface NotificationSender {
+  name?: string
+  identifier?: string
+  config?: { type?: string }
+}
