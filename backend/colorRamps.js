@@ -4,14 +4,14 @@
 
 const RAMPS = {
   blue: [
-    [0, [0, 0, 0, 0]],          // no precipitation
+    [0, [0, 0, 0, 0]], // no precipitation
     [0.2, [120, 190, 240, 60]], // very light rain
-    [1, [70, 150, 230, 140]],   // light rain
-    [4, [40, 110, 220, 190]],   // moderate rain
-    [10, [30, 80, 200, 220]],   // heavy rain
-    [25, [40, 40, 180, 240]],   // very heavy rain
-    [50, [90, 20, 160, 255]],   // extreme rain
-    [100, [150, 10, 120, 255]]  // extreme rain (storm)
+    [1, [70, 150, 230, 140]], // light rain
+    [4, [40, 110, 220, 190]], // moderate rain
+    [10, [30, 80, 200, 220]], // heavy rain
+    [25, [40, 40, 180, 240]], // very heavy rain
+    [50, [90, 20, 160, 255]], // extreme rain
+    [100, [150, 10, 120, 255]] // extreme rain (storm)
   ],
   classic: [
     [0, [0, 0, 0, 0]],
@@ -37,23 +37,23 @@ const RAMPS = {
   // Derived from DWDs radar dBZ color scale and changed to mm/h.
   // (see https://www.dwd.de/DE/wetter/thema_des_tages/2024/1/6.html)
   dwd: [
-    [0, [0, 0, 0, 0]],            // no echo - no rain
-    [0.02, [190, 240, 250, 50]],  // 1-5.5 dBZ – drizzle
-    [0.05, [90, 210, 220, 90]],   // 5.5-10 dBZ – light rain
-    [0.1, [20, 150, 140, 120]],   // 10-14.5 dBZ – light/moderate rain
-    [0.2, [20, 130, 60, 150]],    // 14.5-19 dBZ – moderate rain
-    [0.44, [70, 170, 70, 175]],   // 19-23.5 dBZ – moderate rain
-    [0.9, [140, 195, 60, 195]],   // 23.5-28 dBZ – heavier rain
-    [1.9, [190, 210, 50, 210]],   // 28-32.5 dBZ – transition to showers
-    [3.9, [255, 230, 40, 225]],   // 32.5-37 dBZ – heavy showers (yellow starts)
-    [8, [245, 165, 30, 235]],     // 37-41.5 dBZ – heavy showers/storms
-    [17, [230, 110, 20, 245]],    // 41.5-46 dBZ – strong showers
-    [35, [230, 20, 20, 250]],     // 46-50.5 dBZ – heavy rain (red starts)
-    [60, [140, 0, 0, 255]],       // 50.5-55 dBZ – extreme rain, capped
-    [80, [60, 100, 220, 255]],    // 55-60 dBZ – transition, hail likely starting
-    [100, [0, 0, 180, 255]],      // 60-65 dBZ – hail likely
-    [130, [140, 0, 140, 255]],    // 65-75 dBZ – hail/severe storm
-    [170, [255, 0, 220, 255]]     // 75-85 dBZ – extreme storm/large hail
+    [0, [0, 0, 0, 0]], // no echo - no rain
+    [0.02, [190, 240, 250, 50]], // 1-5.5 dBZ – drizzle
+    [0.05, [90, 210, 220, 90]], // 5.5-10 dBZ – light rain
+    [0.1, [20, 150, 140, 120]], // 10-14.5 dBZ – light/moderate rain
+    [0.2, [20, 130, 60, 150]], // 14.5-19 dBZ – moderate rain
+    [0.44, [70, 170, 70, 175]], // 19-23.5 dBZ – moderate rain
+    [0.9, [140, 195, 60, 195]], // 23.5-28 dBZ – heavier rain
+    [1.9, [190, 210, 50, 210]], // 28-32.5 dBZ – transition to showers
+    [3.9, [255, 230, 40, 225]], // 32.5-37 dBZ – heavy showers (yellow starts)
+    [8, [245, 165, 30, 235]], // 37-41.5 dBZ – heavy showers/storms
+    [17, [230, 110, 20, 245]], // 41.5-46 dBZ – strong showers
+    [35, [230, 20, 20, 250]], // 46-50.5 dBZ – heavy rain (red starts)
+    [60, [140, 0, 0, 255]], // 50.5-55 dBZ – extreme rain, capped
+    [80, [60, 100, 220, 255]], // 55-60 dBZ – transition, hail likely starting
+    [100, [0, 0, 180, 255]], // 60-65 dBZ – hail likely
+    [130, [140, 0, 140, 255]], // 65-75 dBZ – hail/severe storm
+    [170, [255, 0, 220, 255]] // 75-85 dBZ – extreme storm/large hail
   ]
 }
 
