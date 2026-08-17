@@ -150,4 +150,30 @@ function applySamplingPlan(plan, sourceGrid) {
   return out
 }
 
-module.exports = { buildSamplingPlan, applySamplingPlan }
+/**
+ * Samples the precipitation value (mm/5-min) from a decoded RADOLAN source grid
+ * at a specific geographic coordinate. Returns null if the location falls outside
+ * the radar coverage area, or 0 for undetect pixels.
+ *
+ * @param {{ width: number, height: number, xscale: number, yscale: number,
+ *           projdef: string, ulLat: number, ulLon: number }} gridDef
+ * @param {Float32Array} sourceGrid
+ * @param {number} lat
+ * @param {number} lon
+ * @returns {number | null} mm/5-min, or null if outside coverage
+ */
+function sampleAtLatLon(gridDef, sourceGrid, lat, lon) {
+  const { width, height, xscale, yscale, projdef, ulLat, ulLon } = gridDef
+  const converter = proj4(projdef)
+  const [xMin, yMax] = converter.forward([ulLon, ulLat])
+  const [x, y] = converter.forward([lon, lat])
+
+  const col = Math.round((x - xMin) / xscale - 0.5)
+  const row = Math.round((yMax - y) / yscale - 0.5)
+
+  if (col < 0 || col >= width || row < 0 || row >= height) return null
+  const val = sourceGrid[row * width + col]
+  return Number.isNaN(val) ? 0 : val
+}
+
+module.exports = { buildSamplingPlan, applySamplingPlan, sampleAtLatLon }

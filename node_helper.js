@@ -74,10 +74,21 @@ module.exports = NodeHelper.create({
     })
     const store = new FrameStore(cacheDir, maxHistoryFrames)
 
+    const { targetLat, targetLon } = this._getRainForecastLocation(config)
+
     const runCycleAndNotify = async () => {
       try {
-        await client.pollCycle(store, pollingIntervalMinutes, config.maxForecastFrames)
+        const rainForecast = await client.pollCycle(
+          store,
+          pollingIntervalMinutes,
+          config.maxForecastFrames,
+          targetLat,
+          targetLon
+        )
         this._sendSnapshot(identifier, store)
+        if (rainForecast !== null) {
+          this.sendSocketNotification('DWD_RAIN_FORECAST', { identifier, ...rainForecast })
+        }
       } catch (err) {
         Log.error(`MMM-Regenkarte: poll cycle failed: ${err.stack || err}`)
       }
@@ -106,5 +117,23 @@ module.exports = NodeHelper.create({
       history: snapshot.history.map((f) => ({ time: f.time, fileName: f.fileName })),
       forecast: snapshot.forecast.map((f) => ({ time: f.time, fileName: f.fileName }))
     })
+  },
+
+  /**
+   * Determines the geographic point used for short-term rain prediction from the radar nowcast.
+   * Priority: explicit rainForecastLocation config > first marker > first mapPosition.
+   * Returns null/null when no usable location is found (disables DWD rain forecast).
+   */
+  _getRainForecastLocation(config) {
+    if (config.rainForecastLocation?.lat != null && config.rainForecastLocation?.lng != null) {
+      return { targetLat: config.rainForecastLocation.lat, targetLon: config.rainForecastLocation.lng }
+    }
+    if (config.markers?.length > 0) {
+      return { targetLat: config.markers[0].lat, targetLon: config.markers[0].lng }
+    }
+    if (config.mapPositions?.length > 0) {
+      return { targetLat: config.mapPositions[0].lat, targetLon: config.mapPositions[0].lng }
+    }
+    return { targetLat: null, targetLon: null }
   }
 })

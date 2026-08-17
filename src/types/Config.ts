@@ -30,6 +30,12 @@ export interface Config {
   radarRasterHeight: number
   /** Color ramp used by node_helper to render precipitation intensity. */
   radarColorScheme: 'blue' | 'classic' | 'violet' | 'dwd'
+  /**
+   * Geographic point used for short-term (0–120 min) rain prediction from the DWD nowcast radar.
+   * When omitted, the first marker position is used, falling back to the first mapPosition center.
+   * Has no effect when displayHoursBeforeRain is -1 (always show).
+   */
+  rainForecastLocation?: { lat: number; lng: number }
 }
 
 export interface Marker {

@@ -59,7 +59,10 @@ function createMockModule(config = {}) {
     identifier: 'test-module',
     runtimeData: {
       isHiddenDueToNoRain: false,
-      animationTimer: null
+      animationTimer: null,
+      dwdRainMinutes: undefined,
+      hourlyRainHours: undefined,
+      hourlyWarningShown: false
     },
     show(duration, callback, options) {
       calls.show.push({ duration, callback, options })
@@ -108,28 +111,76 @@ function handleCurrentWeatherCondition(module, currentCondition) {
 }
 
 /**
- * Simplified version of handleWeatherUpdate from Frontend.ts
+ * Simplified version of _evaluateVisibility from Frontend.ts.
+ * DWD is authoritative for 0–120 min; hourly only consulted for the >2h tail
+ * when threshold > 2. Missing hourly data defaults to showing the map with a warning.
+ */
+function evaluateVisibility(module) {
+  const threshold = module.config.displayHoursBeforeRain
+  const { dwdRainMinutes, hourlyRainHours } = module.runtimeData
+  const dwdWindowMin = Math.min(threshold * 60, 120)
+
+  if (dwdRainMinutes !== undefined && dwdRainMinutes !== null && dwdRainMinutes <= dwdWindowMin) {
+    handleCurrentWeatherCondition(module, 'rain')
+    return
+  }
+
+  if (threshold > 2) {
+    if (hourlyRainHours === undefined) {
+      if (!module.runtimeData.hourlyWarningShown) {
+        module.runtimeData.hourlyWarningShown = true
+        global.Log.warn(
+          `MMM-RainfallMapDWD: displayHoursBeforeRain is set to ${threshold}h which exceeds the 2h DWD nowcast window, ` +
+            `but no hourly weather module data has been received (WEATHER_UPDATED). ` +
+            `The map will remain visible by default. ` +
+            `Add the MagicMirror default weather module in hourly mode to enable forecasts beyond 2h.`
+        )
+      }
+      handleCurrentWeatherCondition(module, 'rain')
+      return
+    }
+    if (hourlyRainHours > 2 && hourlyRainHours < threshold) {
+      handleCurrentWeatherCondition(module, 'rain')
+      return
+    }
+  }
+
+  handleCurrentWeatherCondition(module, '')
+}
+
+/**
+ * Simplified version of handleDwdRainForecast from Frontend.ts
+ */
+function handleDwdRainForecast(module, forecast) {
+  if (module.config.displayHoursBeforeRain < 0) return
+  if (forecast.locationOutsideCoverage) return
+  module.runtimeData.dwdRainMinutes = forecast.minutesUntilRain
+  evaluateVisibility(module)
+}
+
+/**
+ * Simplified version of handleWeatherUpdate from Frontend.ts.
+ * Only considers hourly entries beyond the 120-min DWD nowcast window.
  */
 function handleWeatherUpdate(module, update) {
   const hourlyData = update.hourlyArray
-  let closestRain = Infinity
+  if (!hourlyData) return
+
+  const minLookAheadMs = 120 * 60 * 1000
+  let closestRainMs = Infinity
   const now = Date.now()
 
   for (const entry of hourlyData) {
     if (rainConditions.some((condition) => entry.weatherType.includes(condition))) {
-      if (entry.date - now < closestRain) {
-        closestRain = entry.date - now
+      const timeToRain = entry.date - now
+      if (timeToRain >= minLookAheadMs && timeToRain < closestRainMs) {
+        closestRainMs = timeToRain
       }
     }
   }
 
-  closestRain = closestRain / 1000 / 60 / 60 // convert to hours
-
-  if (closestRain < module.config.displayHoursBeforeRain) {
-    handleCurrentWeatherCondition(module, 'rain')
-  } else {
-    handleCurrentWeatherCondition(module, '')
-  }
+  module.runtimeData.hourlyRainHours = closestRainMs / 1000 / 60 / 60
+  evaluateVisibility(module)
 }
 
 describe('handleCurrentWeatherCondition', () => {
@@ -232,69 +283,84 @@ describe('handleCurrentWeatherCondition', () => {
 })
 
 describe('handleWeatherUpdate', () => {
-  test('hides module when rain is far in future', () => {
-    const module = createMockModule({ displayHoursBeforeRain: 2 })
+  test('hides module when rain is beyond configured threshold', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 4 })
     const now = Date.now()
 
     const update = {
       hourlyArray: [
-        { date: now + 1000 * 60 * 60 * 5, weatherType: 'rain' } // 5 hours in future
+        { date: now + 1000 * 60 * 60 * 5, weatherType: 'rain' } // 5h - beyond 4h threshold
       ]
     }
 
     handleWeatherUpdate(module, update)
 
-    assert.equal(module.runtimeData.isHiddenDueToNoRain, true, 'should hide when rain is > 2 hours away')
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, true, 'should hide when rain is > 4h away')
     assert.equal(module._calls.hide.length, 1)
   })
 
-  test('shows module when rain is within threshold', () => {
-    const module = createMockModule({ displayHoursBeforeRain: 2 })
+  test('shows module when rain is within the >2h hourly window', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 4 })
     module.runtimeData.isHiddenDueToNoRain = true
     const now = Date.now()
 
     const update = {
       hourlyArray: [
-        { date: now + 1000 * 60 * 60 * 1, weatherType: 'rain' } // 1 hour in future
+        { date: now + 1000 * 60 * 60 * 3, weatherType: 'rain' } // 3h - between 2h DWD limit and 4h threshold
       ]
     }
 
     handleWeatherUpdate(module, update)
 
-    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'should show when rain is < 2 hours away')
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'should show when 2h < rain < 4h')
     assert.equal(module._calls.show.length, 1)
   })
 
-  test('finds closest rain event from multiple entries', () => {
-    const module = createMockModule({ displayHoursBeforeRain: 2 })
+  test('skips entries within the 120-min DWD nowcast window', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 4 })
+    const now = Date.now()
+
+    const update = {
+      hourlyArray: [
+        { date: now + 1000 * 60 * 90, weatherType: 'rain' } // 90 min - inside DWD 120-min window
+      ]
+    }
+
+    handleWeatherUpdate(module, update)
+
+    // Entry skipped; no rain beyond 120 min → hides
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, true, 'should ignore entries within 120-min DWD window')
+    assert.equal(module._calls.hide.length, 1)
+  })
+
+  test('finds closest rain event beyond the DWD 120-min window', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 4 })
     module.runtimeData.isHiddenDueToNoRain = true
     const now = Date.now()
 
     const update = {
       hourlyArray: [
-        { date: now + 1000 * 60 * 60 * 10, weatherType: 'clear' },
-        { date: now + 1000 * 60 * 60 * 5, weatherType: 'rain' }, // 5 hours
-        { date: now + 1000 * 60 * 60 * 1.5, weatherType: 'rain' }, // 1.5 hours - closest
+        { date: now + 1000 * 60 * 90, weatherType: 'rain' }, // 90 min — skipped (inside DWD window)
+        { date: now + 1000 * 60 * 60 * 5, weatherType: 'rain' }, // 5h — beyond threshold
+        { date: now + 1000 * 60 * 60 * 3, weatherType: 'rain' }, // 3h — closest valid, within threshold
         { date: now + 1000 * 60 * 60 * 8, weatherType: 'thunderstorm' }
       ]
     }
 
     handleWeatherUpdate(module, update)
 
-    // Closest rain is 1.5 hours, which is < 2 hours threshold
-    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'should use closest rain event')
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'should use closest rain entry beyond 120 min')
     assert.equal(module._calls.show.length, 1)
   })
 
   test('hides module when no rain predicted', () => {
-    const module = createMockModule({ displayHoursBeforeRain: 2 })
+    const module = createMockModule({ displayHoursBeforeRain: 4 })
     const now = Date.now()
 
     const update = {
       hourlyArray: [
-        { date: now + 1000 * 60 * 60 * 1, weatherType: 'clear' },
-        { date: now + 1000 * 60 * 60 * 2, weatherType: 'cloudy' },
-        { date: now + 1000 * 60 * 60 * 3, weatherType: 'sunny' }
+        { date: now + 1000 * 60 * 60 * 3, weatherType: 'clear' },
+        { date: now + 1000 * 60 * 60 * 5, weatherType: 'cloudy' }
       ]
     }
 
@@ -305,7 +371,7 @@ describe('handleWeatherUpdate', () => {
   })
 
   test('handles empty hourly array', () => {
-    const module = createMockModule({ displayHoursBeforeRain: 2 })
+    const module = createMockModule({ displayHoursBeforeRain: 4 })
 
     const update = {
       hourlyArray: []
@@ -314,6 +380,221 @@ describe('handleWeatherUpdate', () => {
     handleWeatherUpdate(module, update)
 
     assert.equal(module.runtimeData.isHiddenDueToNoRain, true, 'should hide when no data available')
+    assert.equal(module._calls.hide.length, 1)
+  })
+})
+
+describe('DWD nowcast rain forecast', () => {
+  test('ignored when displayHoursBeforeRain is -1', () => {
+    const module = createMockModule({ displayHoursBeforeRain: -1 })
+
+    handleDwdRainForecast(module, { minutesUntilRain: 0, locationOutsideCoverage: false })
+
+    assert.equal(module.runtimeData.dwdRainMinutes, undefined, 'should not update when -1')
+    assert.equal(module._calls.hide.length, 0, 'should not evaluate visibility')
+    assert.equal(module._calls.show.length, 0)
+  })
+
+  test('ignored when location is outside DWD coverage', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 1 })
+    module.runtimeData.isHiddenDueToNoRain = false
+
+    handleDwdRainForecast(module, { minutesUntilRain: 0, locationOutsideCoverage: true })
+
+    assert.equal(module.runtimeData.dwdRainMinutes, undefined, 'should not update when outside coverage')
+    assert.equal(module._calls.hide.length, 0, 'should not evaluate visibility')
+  })
+
+  test('shows map when DWD reports rain right now (minutesUntilRain = 0)', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 1 })
+    module.runtimeData.isHiddenDueToNoRain = true
+
+    handleDwdRainForecast(module, { minutesUntilRain: 0, locationOutsideCoverage: false })
+
+    assert.equal(module.runtimeData.dwdRainMinutes, 0)
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'should show map')
+    assert.equal(module._calls.show.length, 1)
+  })
+
+  test('shows map when DWD rain is within the configured threshold', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 1 }) // threshold = 60 min
+    module.runtimeData.isHiddenDueToNoRain = true
+
+    handleDwdRainForecast(module, { minutesUntilRain: 45, locationOutsideCoverage: false })
+
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'rain in 45 min is within 60 min threshold')
+    assert.equal(module._calls.show.length, 1)
+  })
+
+  test('hides map when DWD rain is beyond the configured threshold', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 1 }) // threshold = 60 min
+
+    handleDwdRainForecast(module, { minutesUntilRain: 90, locationOutsideCoverage: false })
+
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, true, 'rain in 90 min exceeds 60 min threshold')
+    assert.equal(module._calls.hide.length, 1)
+  })
+
+  test('hides map when DWD reports no rain within 120 min and threshold <= 2', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 2 })
+
+    handleDwdRainForecast(module, { minutesUntilRain: null, locationOutsideCoverage: false })
+
+    // null = no rain in 120 min; threshold=2 → DWD-only, no hourly check → hide
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, true, 'should hide when DWD says no rain and threshold <= 2')
+    assert.equal(module._calls.hide.length, 1)
+  })
+
+  test('DWD window is capped at 120 min even when threshold > 2h', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 4 }) // threshold = 240 min
+    module.runtimeData.isHiddenDueToNoRain = true
+
+    handleDwdRainForecast(module, { minutesUntilRain: 90, locationOutsideCoverage: false })
+
+    // dwdWindowMin = min(240, 120) = 120; 90 <= 120 → show via DWD
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'DWD rain in 90 min should trigger show')
+    assert.equal(module._calls.show.length, 1)
+  })
+})
+
+describe('_evaluateVisibility combined logic', () => {
+  test('threshold > 2: shows map with warning when no DWD and no hourly data', () => {
+    const warnCalls = []
+    const originalWarn = global.Log.warn
+    global.Log.warn = (msg) => warnCalls.push(msg)
+
+    const module = createMockModule({ displayHoursBeforeRain: 4 })
+    module.runtimeData.isHiddenDueToNoRain = true
+    // dwdRainMinutes = undefined, hourlyRainHours = undefined (no data yet)
+
+    evaluateVisibility(module)
+
+    global.Log.warn = originalWarn
+
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'should show map as safe default')
+    assert.equal(module._calls.show.length, 1)
+    assert.equal(warnCalls.length, 1, 'should log a warning')
+    assert.ok(warnCalls[0].includes('WEATHER_UPDATED'), 'warning should mention WEATHER_UPDATED')
+  })
+
+  test('threshold > 2: warning is logged only once across repeated evaluations', () => {
+    const warnCalls = []
+    const originalWarn = global.Log.warn
+    global.Log.warn = (msg) => warnCalls.push(msg)
+
+    const module = createMockModule({ displayHoursBeforeRain: 4 })
+    module.runtimeData.isHiddenDueToNoRain = true
+
+    evaluateVisibility(module)
+    evaluateVisibility(module)
+    evaluateVisibility(module)
+
+    global.Log.warn = originalWarn
+
+    assert.equal(warnCalls.length, 1, 'warning should be logged only once')
+    assert.equal(module.runtimeData.hourlyWarningShown, true)
+  })
+
+  test('threshold > 2: DWD rain in hand takes priority; no warning logged', () => {
+    const warnCalls = []
+    const originalWarn = global.Log.warn
+    global.Log.warn = (msg) => warnCalls.push(msg)
+
+    const module = createMockModule({ displayHoursBeforeRain: 4 })
+    module.runtimeData.dwdRainMinutes = 30 // DWD rain in 30 min
+    module.runtimeData.isHiddenDueToNoRain = true
+    // hourlyRainHours still undefined
+
+    evaluateVisibility(module)
+
+    global.Log.warn = originalWarn
+
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'DWD should trigger show')
+    assert.equal(warnCalls.length, 0, 'DWD handled it — no warning about missing hourly')
+  })
+
+  test('threshold > 2: warns and shows when DWD says no rain but hourly data missing', () => {
+    const warnCalls = []
+    const originalWarn = global.Log.warn
+    global.Log.warn = (msg) => warnCalls.push(msg)
+
+    const module = createMockModule({ displayHoursBeforeRain: 4 })
+    module.runtimeData.dwdRainMinutes = null // DWD: no rain in 120 min
+    module.runtimeData.isHiddenDueToNoRain = true
+    // hourlyRainHours still undefined
+
+    evaluateVisibility(module)
+
+    global.Log.warn = originalWarn
+
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'should show as safe default')
+    assert.equal(warnCalls.length, 1, 'should warn about missing hourly data')
+  })
+
+  test('threshold > 2: hourly covers the >2h tail when DWD shows no rain', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 4 })
+    module.runtimeData.dwdRainMinutes = null // no rain in 120 min
+    module.runtimeData.hourlyRainHours = 3 // hourly: rain in 3h (>2h, <4h)
+    module.runtimeData.isHiddenDueToNoRain = true
+
+    evaluateVisibility(module)
+
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, false, 'hourly rain in >2h tail should show map')
+    assert.equal(module._calls.show.length, 1)
+  })
+
+  test('threshold > 2: hides when DWD no-rain and hourly rain is beyond threshold', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 4 })
+    module.runtimeData.dwdRainMinutes = null
+    module.runtimeData.hourlyRainHours = 5 // rain in 5h — beyond 4h threshold
+
+    evaluateVisibility(module)
+
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, true, 'should hide when rain beyond threshold')
+    assert.equal(module._calls.hide.length, 1)
+  })
+
+  test('threshold <= 2: ignores hourly data entirely, hides when DWD shows no rain', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 2 })
+    module.runtimeData.dwdRainMinutes = null // no DWD rain
+    module.runtimeData.hourlyRainHours = 1.5 // hourly says rain in 1.5h (should be ignored)
+
+    evaluateVisibility(module)
+
+    // threshold=2 is not > 2 → hourly check skipped → hide
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, true, 'hourly should be ignored for threshold <= 2')
+    assert.equal(module._calls.hide.length, 1)
+  })
+
+  test('threshold = 0: hides when DWD shows no rain now', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 0 })
+    module.runtimeData.dwdRainMinutes = null // no rain currently
+
+    evaluateVisibility(module)
+
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, true)
+    assert.equal(module._calls.hide.length, 1)
+  })
+
+  test('threshold = 0: shows when DWD confirms rain right now', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 0 })
+    module.runtimeData.dwdRainMinutes = 0 // rain now
+    module.runtimeData.isHiddenDueToNoRain = true
+
+    evaluateVisibility(module)
+
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, false)
+    assert.equal(module._calls.show.length, 1)
+  })
+
+  test('threshold = 0: hides when DWD predicts rain in future (not now)', () => {
+    const module = createMockModule({ displayHoursBeforeRain: 0 })
+    module.runtimeData.dwdRainMinutes = 5 // rain in 5 min — not currently raining
+
+    evaluateVisibility(module)
+
+    // dwdWindowMin = min(0*60, 120) = 0; 5 > 0 → not shown
+    assert.equal(module.runtimeData.isHiddenDueToNoRain, true, 'threshold=0 only shows for rain right now')
     assert.equal(module._calls.hide.length, 1)
   })
 })
