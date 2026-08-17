@@ -7,7 +7,9 @@ import {
   CurrentWeatherPayload,
   OpenWeatherPayload,
   DwdRadarFramesPayload,
-  DwdRadarFrame
+  DwdRadarFrame,
+  DwdRainForecastPayload,
+  NotificationSender
 } from '../types/MagicMirror'
 
 // Global or injected variable declarations
@@ -67,6 +69,8 @@ Module.register<Config>('MMM-RainfallMapDWD', {
    * @property {Array<{time: number, fileName: string}>} timeframes - Radar frame data from node_helper
    * @property {number} [percentPerFrame] - Timeline percentage per frame
    * @property {boolean} isHiddenDueToNoRain - Tracks if module is hidden because no rain is expected
+   * @property {number|null|undefined} dwdRainMinutes - Minutes until rain at forecast location per DWD nowcast.
+   *   undefined = no DWD forecast received yet; null = no rain within 120-min window; 0 = raining now.
    */
   runtimeData: {
     animationPosition: 0,
@@ -79,7 +83,11 @@ Module.register<Config>('MMM-RainfallMapDWD', {
     radarLayers: null,
     timeDiv: null,
     timeframes: [],
-    isHiddenDueToNoRain: false
+    isHiddenDueToNoRain: false,
+    /** Minutes until rain per DWD radar (undefined=no data, null=no rain in 2h, 0=raining now, N=minutes) */
+    dwdRainMinutes: undefined as number | null | undefined,
+    /** Hours until next rain from hourly weather module, only for entries beyond 120 min (undefined=no data) */
+    hourlyRainHours: undefined as number | undefined
   },
 
   getStyles() {
@@ -352,63 +360,182 @@ Module.register<Config>('MMM-RainfallMapDWD', {
     this.play()
   },
 
-  socketNotificationReceived(notification: string, payload: DwdRadarFramesPayload) {
-    if (notification === 'DWD_RADAR_FRAMES' && payload.identifier === this.identifier) {
-      this.applyFrames(payload)
+  socketNotificationReceived(notification: string, payload: DwdRadarFramesPayload | DwdRainForecastPayload) {
+    if (notification === 'DWD_RADAR_FRAMES' && (payload as DwdRadarFramesPayload).identifier === this.identifier) {
+      this.applyFrames(payload as DwdRadarFramesPayload)
+    }
+    if (notification === 'DWD_RAIN_FORECAST' && (payload as DwdRainForecastPayload).identifier === this.identifier) {
+      this.handleDwdRainForecast(payload as DwdRainForecastPayload)
     }
   },
 
   notificationReceived(
     notificationIdentifier: string,
-    payload: WeatherPayload | CurrentWeatherPayload | OpenWeatherPayload
+    payload: WeatherPayload | CurrentWeatherPayload | OpenWeatherPayload,
+    sender?: NotificationSender
   ) {
     if (this.config.displayHoursBeforeRain >= 0) {
       if (notificationIdentifier === 'DOM_OBJECTS_CREATED') {
         changeSubstituteModuleVisibility(false, this.config, this.identifier)
       }
       if (this.config.displayHoursBeforeRain === 0) {
-        if (notificationIdentifier === 'OPENWEATHER_FORECAST_WEATHER_UPDATE') {
-          const currentCondition = (payload as OpenWeatherPayload).current?.weather?.[0]?.icon
-          this.handleCurrentWeatherCondition(currentCondition)
-        } else if (notificationIdentifier === 'CURRENTWEATHER_TYPE') {
-          const currentCondition = (payload as CurrentWeatherPayload).type
-          this.handleCurrentWeatherCondition(currentCondition)
+        // DWD nowcast (lead=0 analysis frame) is more accurate than model-based weather modules
+        // for detecting current rain. Only fall back to the weather module when DWD has not yet
+        // provided data for this location (e.g., outside coverage or no location configured).
+        if (this.runtimeData.dwdRainMinutes === undefined) {
+          if (notificationIdentifier === 'OPENWEATHER_FORECAST_WEATHER_UPDATE') {
+            const currentCondition = (payload as OpenWeatherPayload).current?.weather?.[0]?.icon
+            this.handleCurrentWeatherCondition(currentCondition)
+          } else if (notificationIdentifier === 'CURRENTWEATHER_TYPE') {
+            const currentCondition = (payload as CurrentWeatherPayload).type
+            this.handleCurrentWeatherCondition(currentCondition)
+          }
         }
       } else if (this.config.displayHoursBeforeRain > 0) {
-        if (notificationIdentifier === 'WEATHER_UPDATED') {
+        // If multiple "weather" module instances are configured, take only the hourly one.
+        if (
+          notificationIdentifier === 'WEATHER_UPDATED' &&
+          (!sender?.config?.type || sender.config.type === 'hourly')
+        ) {
           this.handleWeatherUpdate(payload as WeatherPayload)
         }
       }
     }
   },
 
-  handleWeatherUpdate(update: WeatherPayload) {
-    const hourlyData = update.hourlyArray
-    if (!hourlyData) {
+  // Log both in the renderer DevTools console and forwarded to node_helper (stdout)
+  logDecision(level: 'log' | 'info' | 'warn' | 'error', message: string) {
+    Log[level](message)
+    this.sendSocketNotification('DWD_FRONTEND_LOG', { level, message })
+  },
+
+  handleDwdRainForecast(forecast: DwdRainForecastPayload) {
+    if (this.config.displayHoursBeforeRain < 0) return
+    // Location outside DWD radar coverage: fall back to the weather module entirely
+    if (forecast.locationOutsideCoverage) return
+
+    this.runtimeData.dwdRainMinutes = forecast.minutesUntilRain
+    this._evaluateVisibility()
+  },
+
+  /**
+   * Unified show/hide decision that combines DWD nowcast (0–120 min) with the hourly
+   * weather module (>120 min). Called whenever either source updates.
+   *
+   * DWD is the authoritative source for the 0–120 min window: it uses actual radar
+   * reflectivity with 5-min resolution, far more precise than hourly model forecasts.
+   * The hourly weather module is only consulted for the portion beyond 120 min when
+   * displayHoursBeforeRain > 2.
+   */
+  _evaluateVisibility() {
+    const threshold = this.config.displayHoursBeforeRain
+    const { dwdRainMinutes, hourlyRainHours } = this.runtimeData
+    const thresholdMin = threshold * 60
+    // DWD covers at most 120 min regardless of the configured threshold
+    const dwdWindowMin = Math.min(thresholdMin, 120)
+
+    // --- DWD check (0 to dwdWindowMin minutes) ---
+    if (dwdRainMinutes !== undefined && dwdRainMinutes !== null && dwdRainMinutes <= dwdWindowMin) {
+      const reason =
+        dwdRainMinutes === 0
+          ? 'DWD radar shows rain at forecast location right now'
+          : `DWD radar predicts rain in ${dwdRainMinutes} min at forecast location`
+      this.handleCurrentWeatherCondition('rain', reason)
       return
     }
-    let closestRain = Infinity
-    const now = Date.now()
-    for (const entry of hourlyData) {
-      if (rainConditions.some((condition) => entry.weatherType.includes(condition))) {
-        if (entry.date - now < closestRain) {
-          closestRain = entry.date - now
-        }
-      }
+
+    // --- Hourly check for the >2h portion (only when threshold > 2) ---
+    if (threshold > 2 && hourlyRainHours !== undefined && hourlyRainHours > 2 && hourlyRainHours < threshold) {
+      this.handleCurrentWeatherCondition(
+        'rain',
+        `hourly forecast: rain in ${hourlyRainHours.toFixed(1)}h (beyond 2h DWD window) is within ${threshold}h threshold`
+      )
+      return
     }
-    closestRain = closestRain / 1000 / 60 / 60 // convert to hours
-    Log.log('Next rain will be in %.1f hours.', closestRain)
-    if (closestRain < this.config.displayHoursBeforeRain) {
-      this.handleCurrentWeatherCondition('rain')
-    } else {
-      this.handleCurrentWeatherCondition('')
+
+    // --- No rain found: hide if we have enough data to be confident ---
+    // For threshold ≤ 2h: DWD alone is sufficient to decide "no rain → hide".
+    // For threshold > 2h: only hide when the hourly module has also confirmed no rain
+    //   beyond 2h (otherwise we'd hide prematurely before hourly data arrives).
+    const canHide = threshold <= 2 || hourlyRainHours !== undefined
+    if (canHide) {
+      const dwdText =
+        dwdRainMinutes === null ? 'no rain in 120-min DWD window' : `DWD: no rain within ${dwdWindowMin} min`
+      this.handleCurrentWeatherCondition('', dwdText)
     }
   },
 
-  handleCurrentWeatherCondition(currentCondition: string) {
+  handleWeatherUpdate(update: WeatherPayload) {
+    const dwdActive = this.runtimeData.dwdRainMinutes !== undefined
+
+    if (!dwdActive) {
+      // Without DWD nowcast, use the current weather condition to catch rain that has
+      // just started but may not appear in the hourly forecast's upcoming entries yet.
+      const currentCondition = update.currentWeather?.weatherType
+      if (currentCondition && rainConditions.some((condition) => currentCondition.includes(condition))) {
+        this.handleCurrentWeatherCondition(
+          'rain',
+          `current weather condition is "${currentCondition}" (matches rain), regardless of hourly forecast`
+        )
+        return
+      }
+    }
+
+    const hourlyData = update.hourlyArray
+    if (!hourlyData) return
+
+    // When DWD nowcast is active, it covers 0-120 min with 5-min resolution.
+    // Skip hourly entries within that window so the coarse hourly buckets don't
+    // override the precise radar data. Only look at entries beyond 120 min from now.
+    // Without DWD: use a -1h tolerance so a current-hour entry counts.
+    const minLookAheadMs = dwdActive ? 120 * 60 * 1000 : -60 * 60 * 1000
+
+    let closestRainMs = Infinity
+    const now = Date.now()
+    for (const entry of hourlyData) {
+      if (rainConditions.some((condition) => entry.weatherType.includes(condition))) {
+        const timeToRain = entry.date - now
+        if (timeToRain >= minLookAheadMs && timeToRain < closestRainMs) {
+          closestRainMs = timeToRain
+        }
+      }
+    }
+    const hoursToRain = closestRainMs / 1000 / 60 / 60
+
+    if (dwdActive) {
+      // Store the hourly result and let _evaluateVisibility combine it with the DWD state
+      this.runtimeData.hourlyRainHours = hoursToRain
+      this._evaluateVisibility()
+    } else {
+      // No DWD data: make the decision directly from hourly (original behaviour)
+      const threshold = this.config.displayHoursBeforeRain
+      if (hoursToRain < threshold) {
+        this.handleCurrentWeatherCondition(
+          'rain',
+          `next rain in ${hoursToRain.toFixed(1)}h is within the configured displayHoursBeforeRain threshold (${threshold}h)`
+        )
+      } else {
+        const closestRainText = Number.isFinite(hoursToRain)
+          ? `${hoursToRain.toFixed(1)}h`
+          : 'not forecasted in the available data'
+        this.handleCurrentWeatherCondition(
+          '',
+          `next rain (${closestRainText}) is outside the configured displayHoursBeforeRain threshold (${threshold}h)`
+        )
+      }
+    }
+  },
+
+  // `reason` is optional and only provided by handleWeatherUpdate, which already knows
+  // *why* the condition is what it is (matched current condition vs. hourly forecast
+  // threshold). When called directly (displayHoursBeforeRain === 0 path), it falls back
+  // to stating the raw currentCondition.
+  handleCurrentWeatherCondition(currentCondition: string, reason?: string) {
+    const reasonText = reason ?? `currentCondition="${currentCondition || 'none'}"`
     if (currentCondition && rainConditions.some((condition) => currentCondition.includes(condition))) {
       // Rain detected - show module if it was hidden due to no rain
       if (this.runtimeData.isHiddenDueToNoRain) {
+        this.logDecision('info', `MMM-RainfallMapDWD: Showing module - ${reasonText}.`)
         this.runtimeData.isHiddenDueToNoRain = false
         changeSubstituteModuleVisibility(false, this.config, this.identifier)
         this.show(300, undefined, { lockString: this.identifier })
@@ -416,10 +543,13 @@ Module.register<Config>('MMM-RainfallMapDWD', {
         if (!this.runtimeData.animationTimer) {
           this.play()
         }
+      } else {
+        this.logDecision('info', `MMM-RainfallMapDWD: Module stays visible - ${reasonText}.`)
       }
     } else {
       // No rain - hide module if currently shown
       if (!this.runtimeData.isHiddenDueToNoRain) {
+        this.logDecision('info', `MMM-RainfallMapDWD: Hiding module - ${reasonText}.`)
         this.runtimeData.isHiddenDueToNoRain = true
         this.hide(300, undefined, { lockString: this.identifier })
         // Stop animation to save resources
@@ -428,6 +558,8 @@ Module.register<Config>('MMM-RainfallMapDWD', {
           this.runtimeData.animationTimer = null
         }
         changeSubstituteModuleVisibility(true, this.config, this.identifier)
+      } else {
+        this.logDecision('info', `MMM-RainfallMapDWD: Module stays hidden - ${reasonText}.`)
       }
     }
   }
