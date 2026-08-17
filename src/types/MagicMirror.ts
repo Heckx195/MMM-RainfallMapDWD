@@ -56,6 +56,15 @@ export interface DwdRadarFramesPayload {
   forecast: DwdRadarFrame[]
 }
 
+export interface DwdRainForecastPayload {
+  identifier: string
+  /** Minutes from now until precipitation >= threshold at the forecast location.
+   *  0 = currently raining. null = no rain expected within the 120-min DWD nowcast window. */
+  minutesUntilRain: number | null
+  /** true when the forecast location falls outside the DWD radar coverage area (non-German locations). */
+  locationOutsideCoverage: boolean
+}
+
 export interface NotificationSender {
   name?: string
   identifier?: string
