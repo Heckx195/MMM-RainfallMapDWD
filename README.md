@@ -11,7 +11,7 @@ This module is a fork of [MMM-RAIN-MAP](https://github.com/jalibu/MMM-RAIN-MAP) 
 </div>
 
 > [!IMPORTANT]
-> Because this module relies on DWD's RADOLAN RV radar product, it only has data coverage for **Germany** (plus a margin into neighboring countries covered by the DWD composite grid, [official coverage map (PDF)](https://www.dwd.de/DE/leistungen/radarprodukte/radarkomposit_rv.pdf?__blob=publicationFile)). Map positions outside that coverage area will show an empty/transparent radar overlay. If you need rain radar for other regions, use the original [MMM-RAIN-MAP](https://github.com/jalibu/MMM-RAIN-MAP), which is based on the globally available RainViewer API.
+> Because this module relies on DWD's RADOLAN RV radar product, it only has data coverage for **Germany** (plus a margin into neighboring countries covered by the DWD composite grid, [official coverage map (PDF)](https://www.dwd.de/DE/leistungen/radarprodukte/radarkomposit_rv.pdf?__blob=publicationFile)). Map positions outside that coverage area will show an empty/transparent radar overlay. If you need rain radar for other regions, use the original [MMM-RAIN-MAP](https://github.com/jalibu/MMM-RAIN-MAP), which is based on the globally available RainViewer API (no forecaset).
 
 ## Why a fork?
 
