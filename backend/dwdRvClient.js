@@ -2,11 +2,14 @@ const fs = require('fs')
 const path = require('path')
 const { extractTar } = require('./tarExtract')
 const { decodeRadolanHdf5 } = require('./radolanHdf5Decoder')
-const { buildSamplingPlan, applySamplingPlan } = require('./reprojector')
+const { buildSamplingPlan, applySamplingPlan, sampleAtLatLon } = require('./reprojector')
 const { renderRadarPng } = require('./radarPngRenderer')
 
 const BASE_URL = 'https://opendata.dwd.de/weather/radar/composite/rv'
 const FORECAST_HORIZON_MINUTES = 120
+// Minimum precipitation (mm per 5-min interval) to count as rain at a location.
+// 0.1 mm/5min ≈ 1.2 mm/h — light drizzle detectable by radar.
+const RAIN_THRESHOLD_MM = 0.1
 
 function pad(n, len = 2) {
   return String(n).padStart(len, '0')
@@ -92,17 +95,28 @@ class DwdRvClient {
   }
 
   /**
-   * Decodes+reprojects+renders a single member from an already-extracted tar entry map.
+   * Decodes+reprojects+renders a single member. Optionally samples precipitation
+   * at a target lat/lon in the same decode pass (no extra HDF5 read).
+   *
    * @param {Map<string, Buffer>} entries
    * @param {string} ts
    * @param {number} leadMinutes
-   * @returns {Promise<{ time: number, fileName: string } | null>} null if the member is missing from the archive
+   * @param {number|null} targetLat
+   * @param {number|null} targetLon
+   * @returns {Promise<{ time: number, fileName: string, bounds: object, precipAtLocation: number|null|undefined }|null>}
+   *   null if member missing; precipAtLocation is undefined when no target, null when outside coverage
    */
-  async _renderMember(entries, ts, leadMinutes) {
+  async _renderMember(entries, ts, leadMinutes, targetLat = null, targetLon = null) {
     const buf = entries.get(memberName(ts, leadMinutes))
     if (!buf) return null
 
     const decoded = await decodeRadolanHdf5(buf)
+
+    let precipAtLocation
+    if (targetLat !== null && targetLon !== null) {
+      precipAtLocation = sampleAtLatLon(decoded, decoded.grid, targetLat, targetLon)
+    }
+
     const plan = this._getOrBuildPlan(decoded)
     const resampled = applySamplingPlan(plan, decoded.grid)
     const png = renderRadarPng(resampled, this.outWidth, this.outHeight, this.colorScheme)
@@ -112,18 +126,23 @@ class DwdRvClient {
 
     const slotDate = parseTsString(ts)
     const time = Math.floor(slotDate.getTime() / 1000) + leadMinutes * 60
-    return { time, fileName, bounds: plan.bounds }
+    return { time, fileName, bounds: plan.bounds, precipAtLocation }
   }
 
   /**
-   * Runs one regular poll cycle: fetches the latest available slot (stepping
-   * backward a few intervals if the newest one isn't published yet), renders
-   * its "now" frame into history and the requested forecast leads, and updates the store.
+   * Runs one regular poll cycle: fetches the latest available slot, renders frames,
+   * and — when a target location is provided — samples precipitation across the full
+   * 120-min nowcast to compute a precise short-term rain forecast.
+   *
    * @param {import('./frameStore').FrameStore} frameStore
    * @param {number} pollingIntervalMinutes
-   * @param {number} maxForecastFrames -1 = all available (up to the 120min horizon), 0 = none, N = N leads
+   * @param {number} maxForecastFrames -1 = all available (up to 120 min), 0 = none, N = N leads
+   * @param {number|null} targetLat latitude of the location to forecast rain for
+   * @param {number|null} targetLon longitude of the location to forecast rain for
+   * @returns {Promise<{ minutesUntilRain: number|null, locationOutsideCoverage: boolean }|null>}
+   *   null when no location provided; minutesUntilRain is null when no rain expected in 120 min
    */
-  async pollCycle(frameStore, pollingIntervalMinutes, maxForecastFrames = -1) {
+  async pollCycle(frameStore, pollingIntervalMinutes, maxForecastFrames = -1, targetLat = null, targetLon = null) {
     const now = new Date()
     const totalMinutes = now.getUTCHours() * 60 + now.getUTCMinutes()
     const slotMinutes = Math.floor(totalMinutes / pollingIntervalMinutes) * pollingIntervalMinutes
@@ -146,37 +165,91 @@ class DwdRvClient {
 
     if (!tarBuffer) {
       this.log.warn('MMM-Regenkarte: no DWD RV data available after retries, keeping previous frames.')
-      return
+      return null
     }
 
-    const maxLead =
+    // Display leads: limited by maxForecastFrames config
+    const displayMaxLead =
       maxForecastFrames < 0
         ? FORECAST_HORIZON_MINUTES
         : Math.min(FORECAST_HORIZON_MINUTES, maxForecastFrames * pollingIntervalMinutes)
-    const leads = [0]
-    for (let l = pollingIntervalMinutes; l <= maxLead; l += pollingIntervalMinutes) {
-      leads.push(l)
+    const displayLeads = []
+    for (let l = pollingIntervalMinutes; l <= displayMaxLead; l += pollingIntervalMinutes) {
+      displayLeads.push(l)
     }
-    const wantedNames = new Set(leads.map((l) => memberName(ts, l)))
+
+    // When a forecast location is configured, extract all 120-min leads for location
+    // sampling — independent of maxForecastFrames (which only governs the animation).
+    const allForecastLeads = []
+    if (targetLat !== null && targetLon !== null) {
+      for (let l = pollingIntervalMinutes; l <= FORECAST_HORIZON_MINUTES; l += pollingIntervalMinutes) {
+        allForecastLeads.push(l)
+      }
+    }
+
+    const leadsToExtract = targetLat !== null ? allForecastLeads : displayLeads
+    const wantedNames = new Set([memberName(ts, 0), ...leadsToExtract.map((l) => memberName(ts, l))])
     const entries = await extractTar(tarBuffer, (name) => wantedNames.has(name))
 
-    const nowFrame = await this._renderMember(entries, ts, 0)
+    const precipByLead = new Map()
+    let locationOutsideCoverage = false
+
+    const nowFrame = await this._renderMember(entries, ts, 0, targetLat, targetLon)
     if (nowFrame) {
       frameStore.setBounds(nowFrame.bounds)
       frameStore.addHistoryFrame({ time: nowFrame.time, fileName: nowFrame.fileName })
+      if (nowFrame.precipAtLocation === null) {
+        locationOutsideCoverage = true
+      } else if (nowFrame.precipAtLocation !== undefined) {
+        precipByLead.set(0, nowFrame.precipAtLocation)
+      }
     }
 
+    const displayLeadsSet = new Set(displayLeads)
     const forecastFrames = []
-    for (const lead of leads) {
-      if (lead === 0) continue
-      const frame = await this._renderMember(entries, ts, lead)
-      if (frame) forecastFrames.push({ time: frame.time, fileName: frame.fileName })
+    for (const lead of displayLeads) {
+      const frame = await this._renderMember(entries, ts, lead, targetLat, targetLon)
+      if (frame) {
+        forecastFrames.push({ time: frame.time, fileName: frame.fileName })
+        if (!locationOutsideCoverage && frame.precipAtLocation !== undefined && frame.precipAtLocation !== null) {
+          precipByLead.set(lead, frame.precipAtLocation)
+        }
+      }
     }
     frameStore.setForecastFrames(forecastFrames)
+
+    // For forecast leads beyond the display set, decode + sample only (no PNG render)
+    if (targetLat !== null && !locationOutsideCoverage) {
+      for (const lead of allForecastLeads) {
+        if (displayLeadsSet.has(lead)) continue
+        const buf = entries.get(memberName(ts, lead))
+        if (!buf) continue
+        try {
+          const decoded = await decodeRadolanHdf5(buf)
+          const precip = sampleAtLatLon(decoded, decoded.grid, targetLat, targetLon)
+          if (precip !== null) precipByLead.set(lead, precip)
+        } catch (err) {
+          this.log.warn(`MMM-RainfallMapDWD: location sample failed for lead ${lead}min:`, err.message)
+        }
+      }
+    }
 
     this.log.log(
       `MMM-RainfallMapDWD: processed DWD RV cycle ${ts} (1 history + ${forecastFrames.length} forecast frames).`
     )
+
+    if (targetLat === null || targetLon === null) return null
+    if (locationOutsideCoverage) return { minutesUntilRain: null, locationOutsideCoverage: true }
+
+    const sortedLeads = [...precipByLead.keys()].sort((a, b) => a - b)
+    let minutesUntilRain = null
+    for (const lead of sortedLeads) {
+      if ((precipByLead.get(lead) ?? 0) >= RAIN_THRESHOLD_MM) {
+        minutesUntilRain = lead
+        break
+      }
+    }
+    return { minutesUntilRain, locationOutsideCoverage: false }
   }
 
   /**
